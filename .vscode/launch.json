@@ -1,0 +1,18 @@
+{
+  "configurations": [
+    {
+      "name": "work",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${workspaceFolder}/path/to/executable",
+      "cwd": "${workspaceFolder}/dir/",
+    },
+    {
+      "name": "test",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${workspaceFolder}/apps/test/bin/test.exe",
+      "cwd": "${workspaceFolder}/apps/test/bin/"
+    }
+  ]
+}
