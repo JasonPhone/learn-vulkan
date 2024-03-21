@@ -10,6 +10,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <vector>
+#include <optional>
 
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 600;
@@ -53,6 +54,25 @@ bool checkValidationLayerSupport() {
     if (found == false)
       return false;
   }
+  return true;
+}
+
+struct QueueFamilyIndices {
+  std::optional<uint32_t> graphics_family = 0;
+};
+
+QueueFamilyIndices getQueueFamilies(const VkPhysicalDevice &device) {
+  QueueFamilyIndices indices{};
+
+  return indices;
+}
+
+bool checkPhysicalDevice(const VkPhysicalDevice &device) {
+  // VkPhysicalDeviceProperties properties;
+  // VkPhysicalDeviceFeatures features;
+  // vkGetPhysicalDeviceProperties(device, &properties);
+  // vkGetPhysicalDeviceFeatures(device, &features);
+
   return true;
 }
 
@@ -118,6 +138,7 @@ private:
   GLFWwindow *window_;
   VkInstance instance_;
   VkDebugUtilsMessengerEXT debug_msgnr_;
+  VkPhysicalDevice physical_device_ = VK_NULL_HANDLE;
 
   void initWindow() {
     glfwInit();
@@ -131,6 +152,7 @@ private:
   void initVulkan() {
     createInstance();
     setupDebugMessenger();
+    selectPhysicalDevice();
   }
 
   void mainLoop() {
@@ -141,13 +163,30 @@ private:
 
   void cleanup() {
     if (kEnableValidationLayers)
-    destroyDebugUtilsMessengerEXT(instance_, debug_msgnr_, nullptr);
+      destroyDebugUtilsMessengerEXT(instance_, debug_msgnr_, nullptr);
 
     vkDestroyInstance(instance_, nullptr);
 
     glfwDestroyWindow(window_);
-
     glfwTerminate();
+  }
+
+  void selectPhysicalDevice() {
+    uint32_t n_device = 0;
+    vkEnumeratePhysicalDevices(instance_, &n_device, nullptr);
+    if (n_device == 0)
+      throw std::runtime_error("No GPU supports Vulkan.");
+    std::vector<VkPhysicalDevice> devices{n_device};
+    vkEnumeratePhysicalDevices(instance_, &n_device, devices.data());
+
+    for (const auto &device : devices) {
+      if (checkPhysicalDevice(device)) {
+        physical_device_ = device;
+        break;
+      }
+    }
+    if (physical_device_ == VK_NULL_HANDLE)
+      throw std::runtime_error("Failed selecting physical device.");
   }
 
   void createInstance() {
