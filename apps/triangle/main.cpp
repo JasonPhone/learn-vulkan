@@ -8,9 +8,9 @@
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
+#include <optional>
 #include <stdexcept>
 #include <vector>
-#include <optional>
 
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 600;
@@ -60,9 +60,7 @@ bool checkValidationLayerSupport() {
 struct QueueFamilyIndices {
   std::optional<uint32_t> graphics_family;
 
-  bool isComplete() {
-    return graphics_family.has_value();
-  }
+  bool isComplete() { return graphics_family.has_value(); }
 };
 
 QueueFamilyIndices getQueueFamilies(const VkPhysicalDevice &device) {
@@ -71,9 +69,10 @@ QueueFamilyIndices getQueueFamilies(const VkPhysicalDevice &device) {
   vkGetPhysicalDeviceQueueFamilyProperties(device, &n_queue_family, nullptr);
   std::vector<VkQueueFamilyProperties> queue_families{n_queue_family};
   // Should be idempotent.
-  vkGetPhysicalDeviceQueueFamilyProperties(device, &n_queue_family, queue_families.data());
+  vkGetPhysicalDeviceQueueFamilyProperties(device, &n_queue_family,
+                                           queue_families.data());
   int idx = 0;
-  for (const auto& family : queue_families) {
+  for (const auto &family : queue_families) {
     if (family.queueFlags & VK_QUEUE_GRAPHICS_BIT) {
       indices.graphics_family = idx;
     }
@@ -121,23 +120,23 @@ VkResult createDebugUtilsMessengerEXT(
     VkInstance instance,
     const VkDebugUtilsMessengerCreateInfoEXT *p_create_info,
     const VkAllocationCallbacks *p_allocator,
-    VkDebugUtilsMessengerEXT *p_debug_msngr) {
+    VkDebugUtilsMessengerEXT *p_debug_messenger) {
   // Locate creator function.
   auto func = (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(
       instance, "vkCreateDebugUtilsMessengerEXT");
   if (func != nullptr) {
-    return func(instance, p_create_info, p_allocator, p_debug_msngr);
+    return func(instance, p_create_info, p_allocator, p_debug_messenger);
   } else {
     return VK_ERROR_EXTENSION_NOT_PRESENT;
   }
 }
 void destroyDebugUtilsMessengerEXT(VkInstance instance,
-                                   VkDebugUtilsMessengerEXT debug_msngr,
+                                   VkDebugUtilsMessengerEXT debug_messenger,
                                    const VkAllocationCallbacks *p_allocator) {
   auto func = (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(
       instance, "vkDestroyDebugUtilsMessengerEXT");
   if (func != nullptr) {
-    func(instance, debug_msngr, p_allocator);
+    func(instance, debug_messenger, p_allocator);
   }
 }
 
@@ -153,9 +152,10 @@ public:
 private:
   GLFWwindow *window_;
   VkInstance instance_;
-  VkDebugUtilsMessengerEXT debug_msgnr_;
+  VkDebugUtilsMessengerEXT debug_messenger_;
   VkPhysicalDevice physical_device_ = VK_NULL_HANDLE;
   VkDevice device_;
+  VkQueue graphics_queue_;
 
   void initWindow() {
     glfwInit();
@@ -180,8 +180,9 @@ private:
   }
 
   void cleanup() {
+    vkDestroyDevice(device_, nullptr);
     if (kEnableValidationLayers)
-      destroyDebugUtilsMessengerEXT(instance_, debug_msgnr_, nullptr);
+      destroyDebugUtilsMessengerEXT(instance_, debug_messenger_, nullptr);
 
     vkDestroyInstance(instance_, nullptr);
 
@@ -192,6 +193,37 @@ private:
   void createLogicalDevice() {
     QueueFamilyIndices indices = getQueueFamilies(physical_device_);
 
+    VkDeviceQueueCreateInfo queue_create_info{};
+    queue_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+    queue_create_info.queueFamilyIndex = indices.graphics_family.value();
+    queue_create_info.queueCount = 1;
+    float queue_priority = 1.0f;
+    queue_create_info.pQueuePriorities = &queue_priority;
+
+    VkPhysicalDeviceFeatures device_features{};
+
+    VkDeviceCreateInfo create_info{};
+    create_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+    create_info.pQueueCreateInfos = &queue_create_info;
+    create_info.queueCreateInfoCount = 1;
+
+    create_info.pEnabledFeatures = &device_features;
+
+    create_info.enabledExtensionCount = 0;
+    if (kEnableValidationLayers) {
+      create_info.enabledLayerCount =
+          static_cast<uint32_t>(validation_layers.size());
+      create_info.ppEnabledLayerNames = validation_layers.data();
+    } else {
+      create_info.enabledLayerCount = 0;
+    }
+
+    if (vkCreateDevice(physical_device_, &create_info, nullptr, &device_) !=
+        VK_SUCCESS) {
+      throw std::runtime_error("Failed creating logical device.");
+    }
+    vkGetDeviceQueue(device_, indices.graphics_family.value(), 0,
+                     &graphics_queue_);
   }
 
   void selectPhysicalDevice() {
@@ -272,7 +304,7 @@ private:
     populateDebugMessengerCreateInfo(create_info);
 
     if (createDebugUtilsMessengerEXT(instance_, &create_info, nullptr,
-                                     &debug_msgnr_) != VK_SUCCESS)
+                                     &debug_messenger_) != VK_SUCCESS)
       throw std::runtime_error("Failed creating debug messenger.");
   }
 };
