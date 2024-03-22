@@ -58,7 +58,7 @@ bool checkValidationLayerSupport() {
 }
 
 struct QueueFamilyIndices {
-  std::optional<uint32_t> graphics_family = 0;
+
 };
 
 QueueFamilyIndices getQueueFamilies(const VkPhysicalDevice &device) {
