@@ -58,12 +58,27 @@ bool checkValidationLayerSupport() {
 }
 
 struct QueueFamilyIndices {
+  std::optional<uint32_t> graphics_family;
 
+  bool isComplete() {
+    return graphics_family.has_value();
+  }
 };
 
 QueueFamilyIndices getQueueFamilies(const VkPhysicalDevice &device) {
   QueueFamilyIndices indices{};
-
+  uint32_t n_queue_family = 0;
+  vkGetPhysicalDeviceQueueFamilyProperties(device, &n_queue_family, nullptr);
+  std::vector<VkQueueFamilyProperties> queue_families{n_queue_family};
+  // Should be idempotent.
+  vkGetPhysicalDeviceQueueFamilyProperties(device, &n_queue_family, queue_families.data());
+  int idx = 0;
+  for (const auto& family : queue_families) {
+    if (family.queueFlags & VK_QUEUE_GRAPHICS_BIT) {
+      indices.graphics_family = idx;
+    }
+    idx++;
+  }
   return indices;
 }
 
@@ -72,8 +87,9 @@ bool checkPhysicalDevice(const VkPhysicalDevice &device) {
   // VkPhysicalDeviceFeatures features;
   // vkGetPhysicalDeviceProperties(device, &properties);
   // vkGetPhysicalDeviceFeatures(device, &features);
+  QueueFamilyIndices indices = getQueueFamilies(device);
 
-  return true;
+  return indices.isComplete();
 }
 
 std::vector<const char *> getRequiredExtensions() {
@@ -139,6 +155,7 @@ private:
   VkInstance instance_;
   VkDebugUtilsMessengerEXT debug_msgnr_;
   VkPhysicalDevice physical_device_ = VK_NULL_HANDLE;
+  VkDevice device_;
 
   void initWindow() {
     glfwInit();
@@ -153,6 +170,7 @@ private:
     createInstance();
     setupDebugMessenger();
     selectPhysicalDevice();
+    createLogicalDevice();
   }
 
   void mainLoop() {
@@ -169,6 +187,11 @@ private:
 
     glfwDestroyWindow(window_);
     glfwTerminate();
+  }
+
+  void createLogicalDevice() {
+    QueueFamilyIndices indices = getQueueFamilies(physical_device_);
+
   }
 
   void selectPhysicalDevice() {
