@@ -18,7 +18,8 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # set(CMAKE_INSTALL_RPATH ${CMAKE_SOURCE_DIR}/bin/)
 
 include_directories(
-  ./extern
+  ./extern/GLFW/include
+  ./extern/SLD3/include
   ./include
   ./src
 )
