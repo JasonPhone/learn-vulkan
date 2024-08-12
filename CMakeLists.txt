@@ -17,13 +17,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # set(CMAKE_BUILD_RPATH ${CMAKE_SOURCE_DIR}/bin/)
 # set(CMAKE_INSTALL_RPATH ${CMAKE_SOURCE_DIR}/bin/)
 
-include_directories(
-  ./extern/GLFW/include
-  ./extern/SLD3/include
-  ./include
-  ./src
-)
 
+add_subdirectory(./extern)
 add_subdirectory(./src)
 add_subdirectory(./apps)
-# add_subdirectory(./extern/ImGui)
