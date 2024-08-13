@@ -2,9 +2,13 @@
 #include "vk_types.h"
 
 int main() {
-  Engine engine;
-  engine.init();
-  engine.run();
-  engine.cleanup();
+  // fmt::print("0");
+  // Engine engine = Engine::get();
+  // fmt::print("init");
+  // engine.init();
+  // fmt::print("run");
+  // engine.run();
+  // fmt::print("cleanup");
+  // engine.cleanup();
   return 0;
 }

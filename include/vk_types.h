@@ -1,3 +1,10 @@
+/**
+ * @file vk_types.h
+ * @author ja50n (zs_feng@qq.com)
+ * @brief Base types and utils for this project.
+ * @version 0.1
+ * @date 2024-08-13
+ */
 #pragma once
 
 #include <array>
@@ -15,7 +22,6 @@
 
 #include <fmt/core.h>
 
-
 #include <glm/mat4x4.hpp>
 #include <glm/vec4.hpp>
 #define VK_CHECK(x)                                                            \
@@ -26,3 +32,8 @@
       abort();                                                                 \
     }                                                                          \
   } while (0)
+
+/**
+ * @note Base class.
+ */
+class ObjectBase {};

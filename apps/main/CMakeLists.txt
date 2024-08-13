@@ -1,4 +1,4 @@
-project("render")
+project("main")
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/bin/")
 
@@ -10,12 +10,34 @@ message(STATUS "Project ${PROJECT_NAME}")
 
 if(WIN32)
   message(STATUS "Running on Windows.")
+  set(HEADER_DIR "${CMAKE_SOURCE_DIR}/include")
+  set(SOURCE_DIR "${CMAKE_SOURCE_DIR}/src")
 
   set(ENV{VULKAN_SDK} "C:/VulkanSDK/1.3.290.0")
   find_package(Vulkan REQUIRED)
 
   # set(SDL3_DIR "${CMAKE_SOURCE_DIR}/extern/SDL3/lib/cmake/SDL3")
   # find_package(SDL3 REQUIRED)
+  add_library(engine STATIC
+    ${SOURCE_DIR}/engine.cpp
+  )
+
+  target_include_directories(engine PRIVATE
+    ${Vulkan_INCLUDE_DIRS}
+
+    ${CMAKE_SOURCE_DIR}/extern/GLM
+    ${CMAKE_SOURCE_DIR}/extern/SDL/include
+    ${CMAKE_SOURCE_DIR}/extern/ImGUI/
+    ${CMAKE_SOURCE_DIR}/extern/stb
+    ${CMAKE_SOURCE_DIR}/extern/tinyobjloader
+    ${CMAKE_SOURCE_DIR}/extern/vk-bootstrap
+    ${CMAKE_SOURCE_DIR}/extern/VMA/include
+    ${CMAKE_SOURCE_DIR}/extern/fmt/include
+
+    ${CMAKE_SOURCE_DIR}/include
+    ${CMAKE_SOURCE_DIR}/src
+  )
+
   add_executable(${PROJECT_NAME} main.cpp)
 
   target_include_directories(${PROJECT_NAME} PRIVATE
@@ -35,6 +57,11 @@ if(WIN32)
   )
 
   target_link_libraries(${PROJECT_NAME} PRIVATE
+
+    # Project binaries.
+    engine
+
+    # External binaries.
     ${Vulkan_LIBRARIES}
     SDL3::SDL3
     tinyobjloader
