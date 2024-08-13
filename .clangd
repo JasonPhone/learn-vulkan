@@ -3,3 +3,16 @@ InlayHints:
   Designators: No
   ParameterNames: Yes
   DeducedTypes: Yes
+CompileFlags:
+  Add: [
+        -I, "C:/Users/Admin/Documents/003Code/cxx/learn-vulkan/extern/GLM",
+        -I, "C:/Users/Admin/Documents/003Code/cxx/learn-vulkan/extern/SDL/include",
+        -I, "C:/Users/Admin/Documents/003Code/cxx/learn-vulkan/extern/ImGUI",
+        -I, "C:/Users/Admin/Documents/003Code/cxx/learn-vulkan/extern/stb",
+        -I, "C:/Users/Admin/Documents/003Code/cxx/learn-vulkan/extern/tinyobjloader",
+        -I, "C:/Users/Admin/Documents/003Code/cxx/learn-vulkan/extern/vk-bootstrap",
+        -I, "C:/Users/Admin/Documents/003Code/cxx/learn-vulkan/extern/VMA/include",
+        -I, "C:/Users/Admin/Documents/003Code/cxx/learn-vulkan/extern/fmt/include",
+        -I, "C:/VulkanSDK/1.3.290.0/Include",
+        -I, "C:/Users/Admin/Documents/003Code/cxx/learn-vulkan/include",
+    ]

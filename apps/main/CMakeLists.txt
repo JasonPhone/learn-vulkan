@@ -1,0 +1,55 @@
+project("render")
+
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/bin/")
+
+# message(STATUS "PROJECT_SOURCE_DIR: ${PROJECT_SOURCE_DIR}")
+# message(STATUS "CMAKE_BINARY_DIR: ${CMAKE_BINARY_DIR}")
+# message(STATUS "CMAKE_SOURCE_DIR: ${CMAKE_SOURCE_DIR}")
+# find_package(glfw3 CONFIG REQUIRED)
+message(STATUS "Project ${PROJECT_NAME}")
+
+if(WIN32)
+  message(STATUS "Running on Windows.")
+
+  set(ENV{VULKAN_SDK} "C:/VulkanSDK/1.3.290.0")
+  find_package(Vulkan REQUIRED)
+
+  # set(SDL3_DIR "${CMAKE_SOURCE_DIR}/extern/SDL3/lib/cmake/SDL3")
+  # find_package(SDL3 REQUIRED)
+  add_executable(${PROJECT_NAME} main.cpp)
+
+  target_include_directories(${PROJECT_NAME} PRIVATE
+    ${Vulkan_INCLUDE_DIRS}
+
+    ${CMAKE_SOURCE_DIR}/extern/GLM
+    ${CMAKE_SOURCE_DIR}/extern/SDL/include
+    ${CMAKE_SOURCE_DIR}/extern/ImGUI/
+    ${CMAKE_SOURCE_DIR}/extern/stb
+    ${CMAKE_SOURCE_DIR}/extern/tinyobjloader
+    ${CMAKE_SOURCE_DIR}/extern/vk-bootstrap
+    ${CMAKE_SOURCE_DIR}/extern/VMA/include
+    ${CMAKE_SOURCE_DIR}/extern/fmt/include
+
+    ${CMAKE_SOURCE_DIR}/include
+    ${CMAKE_SOURCE_DIR}/src
+  )
+
+  target_link_libraries(${PROJECT_NAME} PRIVATE
+    ${Vulkan_LIBRARIES}
+    SDL3::SDL3
+    tinyobjloader
+    imgui
+    vk-bootstrap::vk-bootstrap
+    vma
+    fmt::fmt
+  )
+elseif(UNIX)
+  message(FATAL_ERROR "Running on Unix. No impl.")
+
+# find_package(glfw3 REQUIRED)
+# find_package(Vulkan REQUIRED)
+# add_executable(${PROJECT_NAME} main.cpp)
+# target_link_libraries(${PROJECT_NAME} glfw vulkan)
+else()
+  message(FATAL_ERROR "Unknown host system.")
+endif()
