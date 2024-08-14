@@ -30,7 +30,7 @@ if(WIN32)
     ${CMAKE_SOURCE_DIR}/extern/ImGUI/
     ${CMAKE_SOURCE_DIR}/extern/stb
     ${CMAKE_SOURCE_DIR}/extern/tinyobjloader
-    ${CMAKE_SOURCE_DIR}/extern/vk-bootstrap
+    ${CMAKE_SOURCE_DIR}/extern/vk-bootstrap/src
     ${CMAKE_SOURCE_DIR}/extern/VMA/include
     ${CMAKE_SOURCE_DIR}/extern/fmt/include
 
@@ -48,7 +48,7 @@ if(WIN32)
     ${CMAKE_SOURCE_DIR}/extern/ImGUI/
     ${CMAKE_SOURCE_DIR}/extern/stb
     ${CMAKE_SOURCE_DIR}/extern/tinyobjloader
-    ${CMAKE_SOURCE_DIR}/extern/vk-bootstrap
+    ${CMAKE_SOURCE_DIR}/extern/vk-bootstrap/src
     ${CMAKE_SOURCE_DIR}/extern/VMA/include
     ${CMAKE_SOURCE_DIR}/extern/fmt/include
 
@@ -58,9 +58,6 @@ if(WIN32)
 
   target_link_libraries(${PROJECT_NAME} PRIVATE
 
-    # Project binaries.
-    engine
-
     # External binaries.
     ${Vulkan_LIBRARIES}
     SDL3::SDL3
@@ -69,6 +66,14 @@ if(WIN32)
     vk-bootstrap::vk-bootstrap
     vma
     fmt::fmt
+
+    # Project binaries.
+    engine
+  )
+  add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+    "${CMAKE_SOURCE_DIR}/bin/"
+    $<TARGET_FILE_DIR:${PROJECT_NAME}>
   )
 elseif(UNIX)
   message(FATAL_ERROR "Running on Unix. No impl.")
