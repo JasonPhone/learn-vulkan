@@ -5,11 +5,12 @@
 
 #include <vk_initializers.h>
 #include <vk_types.h>
+#include "VkBootstrap.h"
 
 #include <chrono>
 #include <thread>
 
-constexpr bool bUseValidationLayers = false;
+constexpr bool bUseValidationLayers = true;
 
 Engine *loaded_engine = nullptr;
 
@@ -27,13 +28,24 @@ void Engine::init() {
   window = SDL_CreateWindow("Vulkan Engine", window_extent.width,
                             window_extent.height, window_flags);
 
-  // everything went fine
+  initVulkan();
+  initSwapchain();
+  initCommands();
+  initSyncStructures();
   is_initialized = true;
 }
 
 void Engine::cleanup() {
-  if (is_initialized)
+  if (is_initialized) {
+    // Order matters, reversed of init().
+    destroySwapchain();
+    vkDestroySurfaceKHR(m_instance, m_surface, nullptr);
+    vkDestroyDevice(m_device, nullptr);
+    vkb::destroy_debug_utils_messenger(m_instance, m_debug_msngr);
+    vkDestroyInstance(m_instance, nullptr);
+
     SDL_DestroyWindow(window);
+  }
   loaded_engine = nullptr;
 }
 
@@ -70,5 +82,90 @@ void Engine::run() {
     }
 
     draw();
+  }
+}
+
+void Engine::initVulkan() {
+  fmt::print("init vulkan\n");
+  vkb::InstanceBuilder builder;
+  auto inst_ret = builder.set_app_name("Example Vulkan Application")
+                      .request_validation_layers(bUseValidationLayers)
+                      .use_default_debug_messenger()
+                      .require_api_version(1, 3, 0)
+                      .build();
+
+  vkb::Instance vkb_inst = inst_ret.value();
+
+  m_instance = vkb_inst.instance;
+  m_debug_msngr = vkb_inst.debug_messenger;
+
+  SDL_Vulkan_CreateSurface(window, m_instance, NULL, &m_surface);
+
+  // Vulkan 1.3 features.
+  VkPhysicalDeviceVulkan13Features features13{
+      .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
+  features13.dynamicRendering = true;
+  features13.synchronization2 = true;
+
+  // Vulkan 1.2 features.
+  VkPhysicalDeviceVulkan12Features features12{
+      .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
+  features12.bufferDeviceAddress = true;
+  features12.descriptorIndexing = true;
+
+  // Select a gpu.
+  // We want a gpu that can write to the SDL surface and supports vulkan 1.3
+  // with the correct features
+  vkb::PhysicalDeviceSelector selector{vkb_inst};
+  vkb::PhysicalDevice physicalDevice = selector.set_minimum_version(1, 3)
+                                           .set_required_features_13(features13)
+                                           .set_required_features_12(features12)
+                                           .set_surface(m_surface)
+                                           .select()
+                                           .value();
+
+  // Final vulkan device.
+  vkb::DeviceBuilder deviceBuilder{physicalDevice};
+
+  vkb::Device vkbDevice = deviceBuilder.build().value();
+
+  // Get the VkDevice handle for the rest of a vulkan application.
+  m_device = vkbDevice.device;
+  m_chosen_GPU = physicalDevice.physical_device;
+}
+void Engine::initSwapchain() {
+  fmt::print("init swapchain\n");
+  createSwapchain(window_extent.width, window_extent.height);
+}
+void Engine::initCommands() { fmt::print("init commands\n"); }
+void Engine::initSyncStructures() { fmt::print("init sync structures\n"); }
+void Engine::createSwapchain(int w, int h) {
+  vkb::SwapchainBuilder swapchainBuilder{m_chosen_GPU, m_device, m_surface};
+
+  m_swapchain_img_format = VK_FORMAT_B8G8R8A8_UNORM;
+
+  vkb::Swapchain vkbSwapchain =
+      swapchainBuilder
+          //.use_default_format_selection()
+          .set_desired_format(VkSurfaceFormatKHR{
+              .format = m_swapchain_img_format,
+              .colorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR})
+          // use vsync present mode
+          .set_desired_present_mode(VK_PRESENT_MODE_FIFO_KHR)
+          .set_desired_extent(w, h)
+          .add_image_usage_flags(VK_IMAGE_USAGE_TRANSFER_DST_BIT)
+          .build()
+          .value();
+
+  m_swapchain_extent = vkbSwapchain.extent;
+  m_swapchain = vkbSwapchain.swapchain;
+  m_swapchain_imgs = vkbSwapchain.get_images().value();
+  m_swapchain_img_views = vkbSwapchain.get_image_views().value();
+}
+void Engine::destroySwapchain() {
+  // Images are deleted here.
+  vkDestroySwapchainKHR(m_device, m_swapchain, nullptr);
+  for (size_t i = 0; i < m_swapchain_img_views.size(); i++) {
+    vkDestroyImageView(m_device, m_swapchain_img_views[i], nullptr);
   }
 }
