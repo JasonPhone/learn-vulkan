@@ -20,6 +20,8 @@ if(WIN32)
   # find_package(SDL3 REQUIRED)
   add_library(engine STATIC
     ${SOURCE_DIR}/engine.cpp
+
+    ${SOURCE_DIR}/vk_initializers.cpp
   )
 
   target_include_directories(engine PRIVATE

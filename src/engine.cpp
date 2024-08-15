@@ -3,8 +3,8 @@
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_vulkan.h>
 
-#include <vk_initializers.h>
-#include <vk_types.h>
+#include "vk_initializers.h"
+#include "vk_types.h"
 #include "VkBootstrap.h"
 
 #include <chrono>
@@ -37,7 +37,11 @@ void Engine::init() {
 
 void Engine::cleanup() {
   if (is_initialized) {
-    // Order matters, reversed of init().
+    // Order matters, reversed of initialization.
+    vkDeviceWaitIdle(m_device); // Wait for GPU to finish.
+    for (uint32_t i = 0; i < kFrameOverlap; i++)
+      // Cmd buffer is destroyed with pool it comes from.
+      vkDestroyCommandPool(m_device, m_frames[i].cmd_pool, nullptr);
     destroySwapchain();
     vkDestroySurfaceKHR(m_instance, m_surface, nullptr);
     vkDestroyDevice(m_device, nullptr);
@@ -117,27 +121,51 @@ void Engine::initVulkan() {
   // We want a gpu that can write to the SDL surface and supports vulkan 1.3
   // with the correct features
   vkb::PhysicalDeviceSelector selector{vkb_inst};
-  vkb::PhysicalDevice physicalDevice = selector.set_minimum_version(1, 3)
-                                           .set_required_features_13(features13)
-                                           .set_required_features_12(features12)
-                                           .set_surface(m_surface)
-                                           .select()
-                                           .value();
+  vkb::PhysicalDevice physical_device =
+      selector.set_minimum_version(1, 3)
+          .set_required_features_13(features13)
+          .set_required_features_12(features12)
+          .set_surface(m_surface)
+          .select()
+          .value();
 
   // Final vulkan device.
-  vkb::DeviceBuilder deviceBuilder{physicalDevice};
+  vkb::DeviceBuilder device_builder{physical_device};
 
-  vkb::Device vkbDevice = deviceBuilder.build().value();
+  vkb::Device vkb_device = device_builder.build().value();
 
   // Get the VkDevice handle for the rest of a vulkan application.
-  m_device = vkbDevice.device;
-  m_chosen_GPU = physicalDevice.physical_device;
+  m_device = vkb_device.device;
+  m_chosen_GPU = physical_device.physical_device;
+
+  m_graphic_queue = vkb_device.get_queue(vkb::QueueType::graphics).value();
+  m_graphic_queue_family =
+      vkb_device.get_queue_index(vkb::QueueType::graphics).value();
 }
 void Engine::initSwapchain() {
   fmt::print("init swapchain\n");
   createSwapchain(window_extent.width, window_extent.height);
 }
-void Engine::initCommands() { fmt::print("init commands\n"); }
+void Engine::initCommands() {
+  fmt::print("init commands\n");
+  // create a command pool for commands submitted to the graphics queue.
+  // we also want the pool to allow for resetting of individual command buffers
+  VkCommandPoolCreateInfo cmd_pool_info = vkinit::cmdPoolCreateInfo(
+      m_graphic_queue_family, VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT);
+
+  for (uint32_t i = 0; i < kFrameOverlap; i++) {
+
+    VK_CHECK(vkCreateCommandPool(m_device, &cmd_pool_info, nullptr,
+                                 &m_frames[i].cmd_pool));
+
+    // allocate the default command buffer that we will use for rendering
+    VkCommandBufferAllocateInfo cmd_alloc_info =
+        vkinit::cmdBufferAlloInfo(m_frames[i].cmd_pool, 1);
+
+    VK_CHECK(vkAllocateCommandBuffers(m_device, &cmd_alloc_info,
+                                      &m_frames[i].cmd_buffer_main));
+  }
+}
 void Engine::initSyncStructures() { fmt::print("init sync structures\n"); }
 void Engine::createSwapchain(int w, int h) {
   vkb::SwapchainBuilder swapchainBuilder{m_chosen_GPU, m_device, m_surface};
