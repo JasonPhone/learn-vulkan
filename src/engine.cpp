@@ -5,7 +5,8 @@
 
 #include "vk_initializers.h"
 #include "vk_types.h"
-#include "VkBootstrap.h"
+#include "vk_images.h"
+#include <VkBootstrap.h>
 
 #include <chrono>
 #include <thread>
@@ -39,9 +40,14 @@ void Engine::cleanup() {
   if (is_initialized) {
     // Order matters, reversed of initialization.
     vkDeviceWaitIdle(m_device); // Wait for GPU to finish.
-    for (uint32_t i = 0; i < kFrameOverlap; i++)
+    for (uint32_t i = 0; i < kFrameOverlap; i++) {
       // Cmd buffer is destroyed with pool it comes from.
       vkDestroyCommandPool(m_device, m_frames[i].cmd_pool, nullptr);
+
+      vkDestroyFence(m_device, m_frames[i].render_fence, nullptr);
+      vkDestroySemaphore(m_device, m_frames[i].render_semaphore, nullptr);
+      vkDestroySemaphore(m_device, m_frames[i].swapchain_semaphore, nullptr);
+    }
     destroySwapchain();
     vkDestroySurfaceKHR(m_instance, m_surface, nullptr);
     vkDestroyDevice(m_device, nullptr);
@@ -54,7 +60,69 @@ void Engine::cleanup() {
 }
 
 void Engine::draw() {
-  // Empty.
+  VK_CHECK(vkWaitForFences(m_device, 1, &getCurrentFrame().render_fence, true,
+                           VK_ONE_SEC));
+  VK_CHECK(vkResetFences(m_device, 1, &getCurrentFrame().render_fence));
+
+  // Request an image to draw to.
+  uint32_t swapchain_img_idx;
+  // Will signal the semaphore.
+  VK_CHECK(vkAcquireNextImageKHR(m_device, m_swapchain, VK_ONE_SEC,
+                                 getCurrentFrame().swapchain_semaphore, nullptr,
+                                 &swapchain_img_idx));
+
+  // Clear the cmd buffer.
+  VkCommandBuffer cmd_buffer = getCurrentFrame().cmd_buffer_main;
+  VK_CHECK(vkResetCommandBuffer(cmd_buffer, 0));
+  // Record cmd. Bit is to tell vulkan buffer is used exactly once.
+  VkCommandBufferBeginInfo cmd_buffer_begin_info =
+      vkinit::cmdBufferBeginInfo(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
+  VK_CHECK(vkBeginCommandBuffer(cmd_buffer, &cmd_buffer_begin_info));
+  { // Commands: Draw a clear color.
+    vkutil::transitionImage(cmd_buffer, m_swapchain_imgs[swapchain_img_idx],
+                            VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+
+    VkClearColorValue clear_color;
+    float flash = std::abs(std::sin(frame_number / 120.f));
+    clear_color = {{0.f, 0.f, flash, 1.f}};
+    VkImageSubresourceRange clear_range =
+        vkinit::imageSubresourceRange(VK_IMAGE_ASPECT_COLOR_BIT);
+    vkCmdClearColorImage(cmd_buffer, m_swapchain_imgs[swapchain_img_idx],
+                         VK_IMAGE_LAYOUT_GENERAL, &clear_color, 1,
+                         &clear_range);
+
+    vkutil::transitionImage(cmd_buffer, m_swapchain_imgs[swapchain_img_idx],
+                            VK_IMAGE_LAYOUT_GENERAL,
+                            VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+  }
+  VK_CHECK(vkEndCommandBuffer(cmd_buffer));
+
+  // Submit commands.
+  VkCommandBufferSubmitInfo cmd_submit_info =
+      vkinit::cmdBufferSubmitInfo(cmd_buffer);
+  VkSemaphoreSubmitInfo wait_info = vkinit::semaphoreSubmitInfo(
+      VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR,
+      getCurrentFrame().swapchain_semaphore);
+  VkSemaphoreSubmitInfo signal_info = vkinit::semaphoreSubmitInfo(
+      VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, getCurrentFrame().render_semaphore);
+  VkSubmitInfo2 submit_info =
+      vkinit::submitInfo(&cmd_submit_info, &signal_info, &wait_info);
+  VK_CHECK(vkQueueSubmit2(m_graphic_queue, 1, &submit_info,
+                          getCurrentFrame().render_fence));
+
+  // Present image.
+  VkPresentInfoKHR present_info = {};
+  present_info.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+  present_info.pNext = nullptr;
+  present_info.pSwapchains = &m_swapchain;
+  present_info.swapchainCount = 1;
+  present_info.pWaitSemaphores = &getCurrentFrame().render_semaphore;
+  present_info.waitSemaphoreCount = 1;
+  present_info.pImageIndices = &swapchain_img_idx;
+
+  VK_CHECK(vkQueuePresentKHR(m_graphic_queue, &present_info));
+
+  frame_number++;
 }
 
 void Engine::run() {
@@ -67,7 +135,6 @@ void Engine::run() {
       // Close the window when alt-f4 or the X button.
       if (e.type == SDL_EVENT_QUIT)
         b_quit = true;
-
       if (e.type >= SDL_EVENT_WINDOW_FIRST && e.type <= SDL_EVENT_WINDOW_LAST) {
         if (e.window.type == SDL_EVENT_WINDOW_MINIMIZED) {
           stop_rendering = true;
@@ -166,7 +233,25 @@ void Engine::initCommands() {
                                       &m_frames[i].cmd_buffer_main));
   }
 }
-void Engine::initSyncStructures() { fmt::print("init sync structures\n"); }
+void Engine::initSyncStructures() {
+  // One fence to control when the gpu has finished rendering the frame.
+  // 2 semaphores to syncronize rendering with swapchain.
+  fmt::print("init sync structures\n");
+
+  // The fence starts signalled so we can wait on it on the first frame.
+  VkFenceCreateInfo fenceCreateInfo =
+      vkinit::fenceCreateInfo(VK_FENCE_CREATE_SIGNALED_BIT);
+  VkSemaphoreCreateInfo semaphoreCreateInfo = vkinit::semaphoreCreateInfo();
+
+  for (uint32_t i = 0; i < kFrameOverlap; i++) {
+    VK_CHECK(vkCreateFence(m_device, &fenceCreateInfo, nullptr,
+                           &m_frames[i].render_fence));
+    VK_CHECK(vkCreateSemaphore(m_device, &semaphoreCreateInfo, nullptr,
+                               &m_frames[i].swapchain_semaphore));
+    VK_CHECK(vkCreateSemaphore(m_device, &semaphoreCreateInfo, nullptr,
+                               &m_frames[i].render_semaphore));
+  }
+}
 void Engine::createSwapchain(int w, int h) {
   vkb::SwapchainBuilder swapchainBuilder{m_chosen_GPU, m_device, m_surface};
 

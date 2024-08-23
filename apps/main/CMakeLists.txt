@@ -22,6 +22,7 @@ if(WIN32)
     ${SOURCE_DIR}/engine.cpp
 
     ${SOURCE_DIR}/vk_initializers.cpp
+    ${SOURCE_DIR}/vk_images.cpp
   )
 
   target_include_directories(engine PRIVATE

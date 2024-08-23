@@ -33,6 +33,8 @@
     }                                                                          \
   } while (0)
 
+#define VK_ONE_SEC 1000000000
+
 /**
  * @note Base class.
  */

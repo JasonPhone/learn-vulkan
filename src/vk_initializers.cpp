@@ -174,6 +174,8 @@ vkinit::renderingInfo(VkExtent2D render_extent,
 //> subresource
 VkImageSubresourceRange
 vkinit::imageSubresourceRange(VkImageAspectFlags aspect_mask) {
+  // Could process part of image arrays or mipmap images.
+  // But this (all levels and layers) is just fine.
   VkImageSubresourceRange sub_image{};
   sub_image.aspectMask = aspect_mask;
   sub_image.baseMipLevel = 0;
