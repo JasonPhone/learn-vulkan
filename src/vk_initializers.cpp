@@ -11,8 +11,8 @@ vkinit::cmdPoolCreateInfo(uint32_t queue_family_idx,
   return info;
 }
 
-VkCommandBufferAllocateInfo vkinit::cmdBufferAlloInfo(VkCommandPool pool,
-                                                      uint32_t count /*= 1*/) {
+VkCommandBufferAllocateInfo vkinit::cmdBufferAllocInfo(VkCommandPool pool,
+                                                       uint32_t count /*= 1*/) {
   VkCommandBufferAllocateInfo info = {};
   info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
   info.pNext = nullptr;
@@ -272,11 +272,12 @@ VkImageCreateInfo vkinit::imageCreateInfo(VkFormat format,
   info.mipLevels = 1;
   info.arrayLayers = 1;
 
-  // for MSAA. we will not be using it by default, so default it to 1 sample per
-  // pixel.
+  // for MSAA.
+  // We will not be using it by default, so default it to 1 spp.
   info.samples = VK_SAMPLE_COUNT_1_BIT;
 
-  // optimal tiling, which means the image is stored on the best gpu format
+  // Optimal tiling, which means the image is stored on the best gpu format
+  // LINEAR tiling is better for CPU read-back but limits GPU optimizing.
   info.tiling = VK_IMAGE_TILING_OPTIMAL;
   info.usage = usage_flags;
 
@@ -284,7 +285,7 @@ VkImageCreateInfo vkinit::imageCreateInfo(VkFormat format,
 }
 
 VkImageViewCreateInfo
-vkinit::imageviewCreateInfo(VkFormat format, VkImage image,
+vkinit::imageViewCreateInfo(VkFormat format, VkImage image,
                             VkImageAspectFlags aspect_flags) {
   // build a image-view for the depth image to use for rendering
   VkImageViewCreateInfo info = {};

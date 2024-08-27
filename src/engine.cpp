@@ -1,3 +1,5 @@
+#define VMA_IMPLEMENTATION
+#include <vk_mem_alloc.h>
 #include "engine.h"
 
 #include <SDL3/SDL.h>
@@ -48,6 +50,8 @@ void Engine::cleanup() {
       vkDestroySemaphore(m_device, m_frames[i].render_semaphore, nullptr);
       vkDestroySemaphore(m_device, m_frames[i].swapchain_semaphore, nullptr);
     }
+    m_main_deletion_queue.flush();
+
     destroySwapchain();
     vkDestroySurfaceKHR(m_instance, m_surface, nullptr);
     vkDestroyDevice(m_device, nullptr);
@@ -62,6 +66,8 @@ void Engine::cleanup() {
 void Engine::draw() {
   VK_CHECK(vkWaitForFences(m_device, 1, &getCurrentFrame().render_fence, true,
                            VK_ONE_SEC));
+  // Free objects dedicated to this frame (in last iteraton).
+  getCurrentFrame().deletion_queue.flush();
   VK_CHECK(vkResetFences(m_device, 1, &getCurrentFrame().render_fence));
 
   // Request an image to draw to.
@@ -72,34 +78,36 @@ void Engine::draw() {
                                  &swapchain_img_idx));
 
   // Clear the cmd buffer.
-  VkCommandBuffer cmd_buffer = getCurrentFrame().cmd_buffer_main;
-  VK_CHECK(vkResetCommandBuffer(cmd_buffer, 0));
+  VkCommandBuffer cmd = getCurrentFrame().cmd_buffer_main;
+  VK_CHECK(vkResetCommandBuffer(cmd, 0));
   // Record cmd. Bit is to tell vulkan buffer is used exactly once.
-  VkCommandBufferBeginInfo cmd_buffer_begin_info =
+  VkCommandBufferBeginInfo cmd_begin_info =
       vkinit::cmdBufferBeginInfo(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
-  VK_CHECK(vkBeginCommandBuffer(cmd_buffer, &cmd_buffer_begin_info));
+
+  m_draw_extent.width = m_draw_image.image_extent.width;
+  m_draw_extent.height = m_draw_image.image_extent.height;
+  VK_CHECK(vkBeginCommandBuffer(cmd, &cmd_begin_info));
   { // Commands: Draw a clear color.
-    vkutil::transitionImage(cmd_buffer, m_swapchain_imgs[swapchain_img_idx],
-                            VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+    vkutil::transitionImage(cmd, m_draw_image.image, VK_IMAGE_LAYOUT_UNDEFINED,
+                            VK_IMAGE_LAYOUT_GENERAL);
+    drawBackground(cmd);
 
-    VkClearColorValue clear_color;
-    float flash = std::abs(std::sin(frame_number / 120.f));
-    clear_color = {{0.f, 0.f, flash, 1.f}};
-    VkImageSubresourceRange clear_range =
-        vkinit::imageSubresourceRange(VK_IMAGE_ASPECT_COLOR_BIT);
-    vkCmdClearColorImage(cmd_buffer, m_swapchain_imgs[swapchain_img_idx],
-                         VK_IMAGE_LAYOUT_GENERAL, &clear_color, 1,
-                         &clear_range);
-
-    vkutil::transitionImage(cmd_buffer, m_swapchain_imgs[swapchain_img_idx],
-                            VK_IMAGE_LAYOUT_GENERAL,
+    vkutil::transitionImage(cmd, m_draw_image.image, VK_IMAGE_LAYOUT_GENERAL,
+                            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    vkutil::transitionImage(cmd, m_swapchain_imgs[swapchain_img_idx],
+                            VK_IMAGE_LAYOUT_UNDEFINED,
+                            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    vkutil::copyImage(cmd, m_draw_image.image,
+                      m_swapchain_imgs[swapchain_img_idx], m_draw_extent,
+                      m_swapchain_extent);
+    vkutil::transitionImage(cmd, m_swapchain_imgs[swapchain_img_idx],
+                            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                             VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
   }
-  VK_CHECK(vkEndCommandBuffer(cmd_buffer));
+  VK_CHECK(vkEndCommandBuffer(cmd));
 
   // Submit commands.
-  VkCommandBufferSubmitInfo cmd_submit_info =
-      vkinit::cmdBufferSubmitInfo(cmd_buffer);
+  VkCommandBufferSubmitInfo cmd_submit_info = vkinit::cmdBufferSubmitInfo(cmd);
   VkSemaphoreSubmitInfo wait_info = vkinit::semaphoreSubmitInfo(
       VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR,
       getCurrentFrame().swapchain_semaphore);
@@ -124,7 +132,18 @@ void Engine::draw() {
 
   frame_number++;
 }
+void Engine::drawBackground(VkCommandBuffer cmd) {
+  VkClearColorValue clearValue;
+  float flash = std::abs(std::sin(frame_number / 120.f));
+  clearValue = {{0.0f, 0.0f, flash, 1.0f}};
 
+  VkImageSubresourceRange clearRange =
+      vkinit::imageSubresourceRange(VK_IMAGE_ASPECT_COLOR_BIT);
+
+  // Clear image.
+  vkCmdClearColorImage(cmd, m_draw_image.image, VK_IMAGE_LAYOUT_GENERAL,
+                       &clearValue, 1, &clearRange);
+}
 void Engine::run() {
   SDL_Event e;
   bool b_quit = false;
@@ -208,10 +227,58 @@ void Engine::initVulkan() {
   m_graphic_queue = vkb_device.get_queue(vkb::QueueType::graphics).value();
   m_graphic_queue_family =
       vkb_device.get_queue_index(vkb::QueueType::graphics).value();
+
+  // Mem allocator.
+  VmaAllocatorCreateInfo alloc_info = {};
+  alloc_info.physicalDevice = m_chosen_GPU;
+  alloc_info.device = m_device;
+  alloc_info.instance = m_instance;
+  alloc_info.flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
+  vmaCreateAllocator(&alloc_info, &m_allocator);
+  m_main_deletion_queue.push([&]() { vmaDestroyAllocator(m_allocator); });
 }
 void Engine::initSwapchain() {
   fmt::print("init swapchain\n");
   createSwapchain(window_extent.width, window_extent.height);
+
+  // Custom draw image.
+  VkExtent3D draw_img_ext = {window_extent.width, window_extent.height, 1};
+  m_draw_image.image_format = VK_FORMAT_R16G16B16A16_SFLOAT;
+  m_draw_image.image_extent = draw_img_ext;
+  VkImageUsageFlags draw_img_usage_flags = {};
+  // Copy from and into.
+  draw_img_usage_flags |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+  draw_img_usage_flags |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+  // Enable computer shader writing.
+  draw_img_usage_flags |= VK_IMAGE_USAGE_STORAGE_BIT;
+  // Graphics pipelines draw.
+  draw_img_usage_flags |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+
+  VkImageCreateInfo img_create_info = vkinit::imageCreateInfo(
+      m_draw_image.image_format, draw_img_usage_flags, draw_img_ext);
+
+  VmaAllocationCreateInfo img_alloc_info = {};
+  img_alloc_info.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+  img_alloc_info.requiredFlags =
+      // Double check the allocation is in VRAM.
+      VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+  // allocate and create the image
+  vmaCreateImage(m_allocator, &img_create_info, &img_alloc_info,
+                 &m_draw_image.image, &m_draw_image.allocation, nullptr);
+
+  // build a image-view for the draw image to use for rendering
+  VkImageViewCreateInfo img_view_create_info = vkinit::imageViewCreateInfo(
+      m_draw_image.image_format, m_draw_image.image, VK_IMAGE_ASPECT_COLOR_BIT);
+
+  VK_CHECK(vkCreateImageView(m_device, &img_view_create_info, nullptr,
+                             &m_draw_image.image_view));
+
+  // add to deletion queues
+  m_main_deletion_queue.push([&]() {
+    vkDestroyImageView(m_device, m_draw_image.image_view, nullptr);
+    vmaDestroyImage(m_allocator, m_draw_image.image, m_draw_image.allocation);
+  });
 }
 void Engine::initCommands() {
   fmt::print("init commands\n");
@@ -227,7 +294,7 @@ void Engine::initCommands() {
 
     // allocate the default command buffer that we will use for rendering
     VkCommandBufferAllocateInfo cmd_alloc_info =
-        vkinit::cmdBufferAlloInfo(m_frames[i].cmd_pool, 1);
+        vkinit::cmdBufferAllocInfo(m_frames[i].cmd_pool, 1);
 
     VK_CHECK(vkAllocateCommandBuffers(m_device, &cmd_alloc_info,
                                       &m_frames[i].cmd_buffer_main));
@@ -235,7 +302,7 @@ void Engine::initCommands() {
 }
 void Engine::initSyncStructures() {
   // One fence to control when the gpu has finished rendering the frame.
-  // 2 semaphores to syncronize rendering with swapchain.
+  // 2 semaphores to synchronize rendering with swapchain.
   fmt::print("init sync structures\n");
 
   // The fence starts signalled so we can wait on it on the first frame.
@@ -263,7 +330,7 @@ void Engine::createSwapchain(int w, int h) {
           .set_desired_format(VkSurfaceFormatKHR{
               .format = m_swapchain_img_format,
               .colorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR})
-          // use vsync present mode
+          // use v-sync present mode
           .set_desired_present_mode(VK_PRESENT_MODE_FIFO_KHR)
           .set_desired_extent(w, h)
           .add_image_usage_flags(VK_IMAGE_USAGE_TRANSFER_DST_BIT)

@@ -5,7 +5,7 @@
 namespace vkinit {
 VkCommandPoolCreateInfo cmdPoolCreateInfo(uint32_t queue_family_idx,
                                           VkCommandPoolCreateFlags flags = 0);
-VkCommandBufferAllocateInfo cmdBufferAlloInfo(VkCommandPool pool,
+VkCommandBufferAllocateInfo cmdBufferAllocInfo(VkCommandPool pool,
                                               uint32_t count = 1);
 
 VkCommandBufferBeginInfo
@@ -57,7 +57,7 @@ VkDescriptorBufferInfo bufferInfo(VkBuffer buffer, VkDeviceSize offset,
 VkImageCreateInfo imageCreateInfo(VkFormat format,
                                   VkImageUsageFlags usage_flags,
                                   VkExtent3D extent);
-VkImageViewCreateInfo imageviewCreateInfo(VkFormat format, VkImage image,
+VkImageViewCreateInfo imageViewCreateInfo(VkFormat format, VkImage image,
                                           VkImageAspectFlags aspect_flags);
 VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo();
 VkPipelineShaderStageCreateInfo

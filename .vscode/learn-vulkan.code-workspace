@@ -6,8 +6,13 @@
 	],
 	"settings": {
 		"cSpell.words": [
-			"GLFW",
-			"VKAPI"
+      "GLFW",
+      "Subresource",
+      "swapchain",
+      "Swapchains",
+      "VKAPI",
+      "vkinit",
+      "vkutil"
     ]
 	}
 }

@@ -9,6 +9,7 @@
 
 #include <array>
 #include <deque>
+#include <stack>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -36,6 +37,19 @@
 #define VK_ONE_SEC 1000000000
 
 /**
- * @note Base class.
+ * @brief Base class.
  */
 class ObjectBase {};
+
+/**
+ * @brief Separate image.
+ *        Images from swapchain are not guaranteed in formats
+ *        (may be low precision) and have fixed resolution only.
+ */
+struct AllocatedImage {
+  VkImage image;
+  VkImageView image_view;
+  VmaAllocation allocation;
+  VkExtent3D image_extent;
+  VkFormat image_format;
+};
