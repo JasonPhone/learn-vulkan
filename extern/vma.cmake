@@ -18,3 +18,6 @@ target_include_directories(${PROJECT_NAME} PRIVATE
   VMA/include
   ${Vulkan_INCLUDE_DIRS}
 )
+
+# VMA is too small to avoid warnings.
+target_compile_options(${PROJECT_NAME} PRIVATE "-w")
