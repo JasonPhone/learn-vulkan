@@ -8,6 +8,7 @@
 #include "vk_initializers.h"
 #include "vk_types.h"
 #include "vk_images.h"
+#include "vk_pipelines.h"
 #include <VkBootstrap.h>
 
 #include <chrono>
@@ -35,6 +36,10 @@ void Engine::init() {
   initSwapchain();
   initCommands();
   initSyncStructures();
+
+  initShaderDescriptors();
+  initPipelines();
+
   is_initialized = true;
 }
 
@@ -66,7 +71,7 @@ void Engine::cleanup() {
 void Engine::draw() {
   VK_CHECK(vkWaitForFences(m_device, 1, &getCurrentFrame().render_fence, true,
                            VK_ONE_SEC));
-  // Free objects dedicated to this frame (in last iteraton).
+  // Free objects dedicated to this frame (in last iteration).
   getCurrentFrame().deletion_queue.flush();
   VK_CHECK(vkResetFences(m_device, 1, &getCurrentFrame().render_fence));
 
@@ -87,9 +92,10 @@ void Engine::draw() {
   m_draw_extent.width = m_draw_image.image_extent.width;
   m_draw_extent.height = m_draw_image.image_extent.height;
   VK_CHECK(vkBeginCommandBuffer(cmd, &cmd_begin_info));
-  { // Commands: Draw a clear color.
+  { // Commands: Draw a background.
     vkutil::transitionImage(cmd, m_draw_image.image, VK_IMAGE_LAYOUT_UNDEFINED,
                             VK_IMAGE_LAYOUT_GENERAL);
+
     drawBackground(cmd);
 
     vkutil::transitionImage(cmd, m_draw_image.image, VK_IMAGE_LAYOUT_GENERAL,
@@ -133,16 +139,22 @@ void Engine::draw() {
   frame_number++;
 }
 void Engine::drawBackground(VkCommandBuffer cmd) {
-  VkClearColorValue clearValue;
-  float flash = std::abs(std::sin(frame_number / 120.f));
-  clearValue = {{0.0f, 0.0f, flash, 1.0f}};
+  // VkClearColorValue clearValue;
+  // float flash = std::abs(std::sin(frame_number / 120.f));
+  // clearValue = {{0.0f, 0.0f, flash, 1.0f}};
 
-  VkImageSubresourceRange clearRange =
-      vkinit::imageSubresourceRange(VK_IMAGE_ASPECT_COLOR_BIT);
+  // VkImageSubresourceRange clearRange =
+  //     vkinit::imageSubresourceRange(VK_IMAGE_ASPECT_COLOR_BIT);
 
-  // Clear image.
-  vkCmdClearColorImage(cmd, m_draw_image.image, VK_IMAGE_LAYOUT_GENERAL,
-                       &clearValue, 1, &clearRange);
+  // // Clear image.
+  // vkCmdClearColorImage(cmd, m_draw_image.image, VK_IMAGE_LAYOUT_GENERAL,
+  //                      &clearValue, 1, &clearRange);
+  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_default_pipeline);
+  vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                          m_default_pipeline_layout, 0, 1, &m_draw_image_ds, 0,
+                          nullptr);
+  vkCmdDispatch(cmd, std::ceil(m_draw_extent.width / 16.f),
+                std::ceil(m_draw_extent.height / 16.f), 1);
 }
 void Engine::run() {
   SDL_Event e;
@@ -348,4 +360,82 @@ void Engine::destroySwapchain() {
   for (size_t i = 0; i < m_swapchain_img_views.size(); i++) {
     vkDestroyImageView(m_device, m_swapchain_img_views[i], nullptr);
   }
+}
+void Engine::initShaderDescriptors() {
+  std::vector<DescriptorAllocator::PoolSizeRatio> sizes = {
+      {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1}};
+  // Descriptor pool with 10 des sets, 1 image each.
+  m_global_ds_allocator.initPool(m_device, 10, sizes);
+  // Init the layout and get descriptor set.
+  {
+    DescriptorLayoutBuilder builder;
+    builder.addBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
+    m_draw_image_ds_layout =
+        builder.build(m_device, VK_SHADER_STAGE_COMPUTE_BIT);
+    m_draw_image_ds =
+        m_global_ds_allocator.allocate(m_device, m_draw_image_ds_layout);
+  }
+
+  VkDescriptorImageInfo img_info = {};
+  img_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+  img_info.imageView = m_draw_image.image_view; // Here connect the data stream.
+
+  VkWriteDescriptorSet draw_img_write = {};
+  draw_img_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+  draw_img_write.pNext = nullptr;
+  draw_img_write.dstBinding = 0;
+  draw_img_write.dstSet = m_draw_image_ds;
+  draw_img_write.descriptorCount = 1;
+  draw_img_write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+  draw_img_write.pImageInfo = &img_info;
+
+  vkUpdateDescriptorSets(m_device, 1, &draw_img_write, 0, nullptr);
+
+  m_main_deletion_queue.push([&]() {
+    m_global_ds_allocator.destroyPool(m_device);
+    vkDestroyDescriptorSetLayout(m_device, m_draw_image_ds_layout, nullptr);
+  });
+}
+void Engine::initPipelines() { initBackgroundPipelines(); }
+void Engine::initBackgroundPipelines() {
+  // Create pipeline layout.
+  VkPipelineLayoutCreateInfo comp_layout = {};
+  comp_layout.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+  comp_layout.pNext = nullptr;
+  comp_layout.pSetLayouts = &m_draw_image_ds_layout;
+  comp_layout.setLayoutCount = 1;
+  VK_CHECK(vkCreatePipelineLayout(m_device, &comp_layout, nullptr,
+                                  &m_default_pipeline_layout));
+
+  // Load shader data.
+  VkShaderModule compute_shader;
+  if (!vkutil::loadShaderModule("../../assets/shaders/gradient.comp.spv",
+                                m_device, &compute_shader)) {
+    fmt::print("Error building compute shader.\n");
+  }
+
+  // Fill shader stage info.
+  VkPipelineShaderStageCreateInfo stage_info = {};
+  stage_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+  stage_info.pNext = nullptr;
+  stage_info.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+  stage_info.module = compute_shader;
+  stage_info.pName = "main";
+
+  // Create pipeline.
+  VkComputePipelineCreateInfo comp_pipeline_info = {};
+  comp_pipeline_info.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+  comp_pipeline_info.pNext = nullptr;
+  comp_pipeline_info.layout = m_default_pipeline_layout;
+  comp_pipeline_info.stage = stage_info;
+  VK_CHECK(vkCreateComputePipelines(m_device, VK_NULL_HANDLE, 1,
+                                    &comp_pipeline_info, nullptr,
+                                    &m_default_pipeline));
+
+  // Shader is already in the pipeline.
+  vkDestroyShaderModule(m_device, compute_shader, nullptr);
+  m_main_deletion_queue.push([&]() {
+    vkDestroyPipelineLayout(m_device, m_default_pipeline_layout, nullptr);
+    vkDestroyPipeline(m_device, m_default_pipeline, nullptr);
+  });
 }

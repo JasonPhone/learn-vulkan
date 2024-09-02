@@ -7,12 +7,14 @@
 	"settings": {
 		"cSpell.words": [
       "GLFW",
+      "Spirv",
       "Subresource",
       "swapchain",
       "Swapchains",
       "VKAPI",
       "vkinit",
       "vkutil"
-    ]
+    ],
+    "glsl-canvas.useCompactFormatter": false
 	}
 }

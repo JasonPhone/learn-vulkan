@@ -23,6 +23,8 @@ if(WIN32)
 
     ${SOURCE_DIR}/vk_initializers.cpp
     ${SOURCE_DIR}/vk_images.cpp
+    ${SOURCE_DIR}/vk_descriptors.cpp
+    ${SOURCE_DIR}/vk_pipelines.cpp
   )
 
   target_include_directories(engine PRIVATE
@@ -73,6 +75,9 @@ if(WIN32)
     # Project binaries.
     engine
   )
+
+  add_dependencies(${PROJECT_NAME} Shaders)
+
   add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
     "${CMAKE_SOURCE_DIR}/bin/"
