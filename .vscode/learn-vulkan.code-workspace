@@ -6,7 +6,11 @@
 	],
 	"settings": {
 		"cSpell.words": [
+      "binfo",
+      "descriptorset",
       "GLFW",
+      "mipmap",
+      "setbind",
       "Spirv",
       "Subresource",
       "swapchain",

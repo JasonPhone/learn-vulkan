@@ -27,6 +27,14 @@ if(WIN32)
     ${SOURCE_DIR}/vk_pipelines.cpp
   )
 
+  # add_library(alloc STATIC ${SOURCE_DIR}/vk_allocation.cpp)
+  # target_compile_options(alloc PRIVATE "-Wno-nullability-extension")
+  # target_compile_options(alloc PRIVATE "-Wno-nullability-completeness")
+  # target_compile_options(alloc PRIVATE "-Wno-unused-function")
+  # target_compile_options(alloc PRIVATE "-Wno-unused-parameter")
+  # target_compile_options(alloc PRIVATE "-Wno-unused-variable")
+  # target_compile_options(alloc PRIVATE "-Wno-missing-field-initializers")
+
   target_include_directories(engine PRIVATE
     ${Vulkan_INCLUDE_DIRS}
 

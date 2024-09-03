@@ -20,4 +20,9 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 )
 
 # VMA is too small to avoid warnings.
-target_compile_options(${PROJECT_NAME} PRIVATE "-w")
+# target_compile_options(${PROJECT_NAME} PRIVATE "-Wno-nullability-extension")
+# target_compile_options(${PROJECT_NAME} PRIVATE "-Wno-nullability-completeness")
+# target_compile_options(${PROJECT_NAME} PRIVATE "-Wno-unused-function")
+# target_compile_options(${PROJECT_NAME} PRIVATE "-Wno-unused-parameter")
+# target_compile_options(${PROJECT_NAME} PRIVATE "-Wno-unused-variable")
+# target_compile_options(${PROJECT_NAME} PRIVATE "-Wno-missing-field-initializers")

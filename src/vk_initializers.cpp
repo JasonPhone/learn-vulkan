@@ -104,7 +104,7 @@ VkSubmitInfo2 vkinit::submitInfo(VkCommandBufferSubmitInfo *cmd,
 VkPresentInfoKHR vkinit::presentInfo() {
   VkPresentInfoKHR info = {};
   info.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
-  info.pNext = 0;
+  info.pNext = nullptr;
 
   info.swapchainCount = 0;
   info.pSwapchains = nullptr;

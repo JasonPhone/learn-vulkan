@@ -41,6 +41,7 @@ public:
   void run();
   void draw();
   void cleanup();
+  void immediateSubmit(std::function<void(VkCommandBuffer cmd)> &&func);
 
   bool stop_rendering{false};
   bool is_initialized{false};
@@ -86,6 +87,10 @@ private:
   VkPipelineLayout m_default_pipeline_layout;
   VkPipeline m_default_pipeline;
 
+  VkFence m_imm_fence;
+  VkCommandBuffer m_imm_cmd;
+  VkCommandPool m_imm_cmd_pool;
+
 private:
   void drawBackground(VkCommandBuffer cmd);
   void initVulkan();
@@ -96,6 +101,9 @@ private:
   void initShaderDescriptors();
   void initPipelines();
   void initBackgroundPipelines();
+
+  void initImGui();
+  void drawImGui(VkCommandBuffer cmd, VkImageView target_img_view);
 
   void createSwapchain(int w, int h);
   void destroySwapchain();
