@@ -1,5 +1,3 @@
-#define VMA_IMPLEMENTATION
-#include <vk_mem_alloc.h>
 #include "engine.h"
 
 #include <SDL3/SDL.h>
@@ -288,22 +286,16 @@ void Engine::initSwapchain() {
 
   VmaAllocationCreateInfo img_alloc_info = {};
   img_alloc_info.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+  // Double check the allocation is in VRAM.
   img_alloc_info.requiredFlags =
-      // Double check the allocation is in VRAM.
       VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-
-  // allocate and create the image
   vmaCreateImage(m_allocator, &img_create_info, &img_alloc_info,
                  &m_draw_image.image, &m_draw_image.allocation, nullptr);
 
-  // build a image-view for the draw image to use for rendering
   VkImageViewCreateInfo img_view_create_info = vkinit::imageViewCreateInfo(
       m_draw_image.image_format, m_draw_image.image, VK_IMAGE_ASPECT_COLOR_BIT);
-
   VK_CHECK(vkCreateImageView(m_device, &img_view_create_info, nullptr,
                              &m_draw_image.image_view));
-
-  // add to deletion queues
   m_main_deletion_queue.push([&]() {
     vkDestroyImageView(m_device, m_draw_image.image_view, nullptr);
     vmaDestroyImage(m_allocator, m_draw_image.image, m_draw_image.allocation);

@@ -19,7 +19,16 @@
 
 #include <vulkan/vulkan.h>
 #include <vulkan/vk_enum_string_helper.h>
+
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wnullability-extension"
+#pragma clang diagnostic ignored "-Wnullability-completeness"
+#pragma clang diagnostic ignored "-Wunused-function"
+#pragma clang diagnostic ignored "-Wunused-parameter"
+#pragma clang diagnostic ignored "-Wunused-variable"
+#pragma clang diagnostic ignored "-Wmissing-field-initializers"
 #include <vk_mem_alloc.h>
+#pragma clang diagnostic pop
 
 #include <fmt/core.h>
 
@@ -49,7 +58,9 @@ class ObjectBase {};
 struct AllocatedImage {
   VkImage image;
   VkImageView image_view;
-  VmaAllocation allocation;
   VkExtent3D image_extent;
   VkFormat image_format;
+
+  VmaAllocation allocation;
+
 };
