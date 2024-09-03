@@ -19,6 +19,9 @@
       "vkinit",
       "vkutil"
     ],
-    "glsl-canvas.useCompactFormatter": false
+    "glsl-canvas.useCompactFormatter": false,
+    "glsllint.glslangValidatorArgs": [
+      "-V"
+    ]
 	}
 }

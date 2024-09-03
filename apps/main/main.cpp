@@ -1,5 +1,4 @@
 #include "engine.h"
-// #include "vk_types.h"
 #include <iostream>
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>

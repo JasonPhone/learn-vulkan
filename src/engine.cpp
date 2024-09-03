@@ -28,9 +28,7 @@ void Engine::init() {
 
   // We initialize SDL and create a window with it.
   SDL_Init(SDL_INIT_VIDEO);
-
   SDL_WindowFlags window_flags = (SDL_WindowFlags)(SDL_WINDOW_VULKAN);
-
   window = SDL_CreateWindow("Vulkan Engine", window_extent.width,
                             window_extent.height, window_flags);
 
@@ -149,20 +147,14 @@ void Engine::draw() {
   frame_number++;
 }
 void Engine::drawBackground(VkCommandBuffer cmd) {
-  // VkClearColorValue clearValue;
-  // float flash = std::abs(std::sin(frame_number / 120.f));
-  // clearValue = {{0.0f, 0.0f, flash, 1.0f}};
-
-  // VkImageSubresourceRange clearRange =
-  //     vkinit::imageSubresourceRange(VK_IMAGE_ASPECT_COLOR_BIT);
-
-  // // Clear image.
-  // vkCmdClearColorImage(cmd, m_draw_image.image, VK_IMAGE_LAYOUT_GENERAL,
-  //                      &clearValue, 1, &clearRange);
-  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_default_pipeline);
+  auto &background = m_compute_pipelines[m_cur_comp_pipeline_idx];
+  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, background.pipeline);
   vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
                           m_default_pipeline_layout, 0, 1, &m_draw_image_ds, 0,
                           nullptr);
+  vkCmdPushConstants(cmd, m_default_pipeline_layout,
+                     VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                     sizeof(ComputePushConstants), &background.data);
   vkCmdDispatch(cmd, std::ceil(m_draw_extent.width / 16.f),
                 std::ceil(m_draw_extent.height / 16.f), 1);
 }
@@ -196,7 +188,20 @@ void Engine::run() {
     ImGui_ImplSDL3_NewFrame();
     ImGui::NewFrame();
     // UI layout.
-    ImGui::ShowDemoWindow();
+    {
+      if (ImGui::Begin("background")) {
+        auto &selected_pipeline = m_compute_pipelines[m_cur_comp_pipeline_idx];
+        ImGui::Text("Selected Compute Pipeline: %s", selected_pipeline.name);
+        ImGui::SliderInt("Effect Index", &m_cur_comp_pipeline_idx, 0,
+                         m_compute_pipelines.size() - 1);
+
+        ImGui::InputFloat4("data1", (float *)&selected_pipeline.data.data1);
+        ImGui::InputFloat4("data2", (float *)&selected_pipeline.data.data2);
+        ImGui::InputFloat4("data3", (float *)&selected_pipeline.data.data3);
+        ImGui::InputFloat4("data4", (float *)&selected_pipeline.data.data4);
+      }
+      ImGui::End();
+    }
     ImGui::Render();
     draw();
   }
@@ -421,13 +426,24 @@ void Engine::initBackgroundPipelines() {
   comp_layout.pNext = nullptr;
   comp_layout.pSetLayouts = &m_draw_image_ds_layout;
   comp_layout.setLayoutCount = 1;
+  VkPushConstantRange push_range = {};
+  push_range.offset = 0;
+  push_range.size = sizeof(ComputePushConstants);
+  push_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+  comp_layout.pPushConstantRanges = &push_range;
+  comp_layout.pushConstantRangeCount = 1;
   VK_CHECK(vkCreatePipelineLayout(m_device, &comp_layout, nullptr,
                                   &m_default_pipeline_layout));
 
   // Load shader data.
-  VkShaderModule compute_shader;
-  if (!vkutil::loadShaderModule("../../assets/shaders/gradient.comp.spv",
-                                m_device, &compute_shader)) {
+  VkShaderModule gradient_shader;
+  if (!vkutil::loadShaderModule("../../assets/shaders/gradient_color.comp.spv",
+                                m_device, &gradient_shader)) {
+    fmt::print("Error building compute shader.\n");
+  }
+  VkShaderModule sky_shader;
+  if (!vkutil::loadShaderModule("../../assets/shaders/sky.comp.spv", m_device,
+                                &sky_shader)) {
     fmt::print("Error building compute shader.\n");
   }
 
@@ -436,7 +452,7 @@ void Engine::initBackgroundPipelines() {
   stage_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
   stage_info.pNext = nullptr;
   stage_info.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-  stage_info.module = compute_shader;
+  stage_info.module = gradient_shader;
   stage_info.pName = "main";
 
   // Create pipeline.
@@ -445,15 +461,36 @@ void Engine::initBackgroundPipelines() {
   comp_pipeline_info.pNext = nullptr;
   comp_pipeline_info.layout = m_default_pipeline_layout;
   comp_pipeline_info.stage = stage_info;
+  ComputePipeline gradient;
+  gradient.layout = m_default_pipeline_layout;
+  gradient.name = "gradient";
+  gradient.data = {};
+  gradient.data.data1 = glm::vec4{1, 0, 0, 1};
+  gradient.data.data2 = glm::vec4{0, 0, 1, 1};
   VK_CHECK(vkCreateComputePipelines(m_device, VK_NULL_HANDLE, 1,
                                     &comp_pipeline_info, nullptr,
-                                    &m_default_pipeline));
+                                    &gradient.pipeline));
+  m_compute_pipelines.push_back(gradient);
+
+  stage_info.module = sky_shader;
+  ComputePipeline sky;
+  sky.layout = m_default_pipeline_layout;
+  sky.name = "gradient";
+  sky.data = {};
+  sky.data.data1 = glm::vec4{0.1, 0.2, 0.4, 0.97};
+  VK_CHECK(vkCreateComputePipelines(m_device, VK_NULL_HANDLE, 1,
+                                    &comp_pipeline_info, nullptr,
+                                    &sky.pipeline));
+  m_compute_pipelines.push_back(sky);
 
   // Shader is already in the pipeline.
-  vkDestroyShaderModule(m_device, compute_shader, nullptr);
+  vkDestroyShaderModule(m_device, gradient_shader, nullptr);
+  vkDestroyShaderModule(m_device, sky_shader, nullptr);
   m_main_deletion_queue.push([&]() {
     vkDestroyPipelineLayout(m_device, m_default_pipeline_layout, nullptr);
-    vkDestroyPipeline(m_device, m_default_pipeline, nullptr);
+    for (auto &&pipeline : m_compute_pipelines) {
+      vkDestroyPipeline(m_device, pipeline.pipeline, nullptr);
+    }
   });
 }
 
@@ -508,13 +545,6 @@ void Engine::initImGui() {
   VkDescriptorPool imgui_pool;
   VK_CHECK(vkCreateDescriptorPool(m_device, &pool_info, nullptr, &imgui_pool));
 
-  // int a = 4;
-  // auto cap_val = [=]() { fmt::print("capture val {}\n", a); };
-  // auto cap_ref = [&]() { fmt::print("capture ref {}\n", a); };
-  // a = 5;
-  // cap_val();
-  // cap_ref();
-
   // 2: initialize imgui library
   // Init the core structures of imgui
   ImGui::CreateContext();
@@ -540,6 +570,8 @@ void Engine::initImGui() {
   init_info.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
   ImGui_ImplVulkan_Init(&init_info);
   ImGui_ImplVulkan_CreateFontsTexture();
+  // Pool value changes if capture using reference,
+  // will cause validation layer to report.
   m_main_deletion_queue.push([this, imgui_pool]() {
     ImGui_ImplVulkan_Shutdown();
     vkDestroyDescriptorPool(m_device, imgui_pool, nullptr);

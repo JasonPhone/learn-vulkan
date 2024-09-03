@@ -32,6 +32,20 @@ struct FrameData {
   DeletionQueue deletion_queue;
 };
 
+struct ComputePushConstants {
+  glm::vec4 data1;
+  glm::vec4 data2;
+  glm::vec4 data3;
+  glm::vec4 data4;
+};
+
+struct ComputePipeline {
+  const char *name;
+  VkPipeline pipeline;
+  VkPipelineLayout layout;
+  ComputePushConstants data;
+};
+
 constexpr uint32_t kFrameOverlap = 2;
 
 class Engine : public ObjectBase {
@@ -86,6 +100,8 @@ private:
 
   VkPipelineLayout m_default_pipeline_layout;
   VkPipeline m_default_pipeline;
+  std::vector<ComputePipeline> m_compute_pipelines;
+  int m_cur_comp_pipeline_idx = 0;
 
   VkFence m_imm_fence;
   VkCommandBuffer m_imm_cmd;
