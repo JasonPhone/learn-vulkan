@@ -13,7 +13,7 @@ foreach(GLSL ${GLSL_SOURCE_FILES})
   set(SPIRV "${PROJECT_SOURCE_DIR}/apps/assets/shaders/${FILE_NAME}.spv")
   set(COMPILE_CMD ${GLSL_VALIDATOR} -V ${GLSL} -o ${SPIRV})
   message(STATUS ${GLSL})
-  message(STATUS "COMMAND ${COMPILE_CMD}")
+  # message(STATUS "COMMAND ${COMPILE_CMD}")
 
   add_custom_command(
     OUTPUT ${SPIRV}

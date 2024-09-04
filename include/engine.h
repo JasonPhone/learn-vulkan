@@ -103,12 +103,15 @@ private:
   std::vector<ComputePipeline> m_compute_pipelines;
   int m_cur_comp_pipeline_idx = 0;
 
+  VkPipelineLayout m_triangle_pipeline_layout;
+  VkPipeline m_triangle_pipeline;
+
+
   VkFence m_imm_fence;
   VkCommandBuffer m_imm_cmd;
   VkCommandPool m_imm_cmd_pool;
 
 private:
-  void drawBackground(VkCommandBuffer cmd);
   void initVulkan();
   void initSwapchain();
   void initCommands();
@@ -117,9 +120,12 @@ private:
   void initShaderDescriptors();
   void initPipelines();
   void initBackgroundPipelines();
+  void initTrianglePipeline();
 
   void initImGui();
   void drawImGui(VkCommandBuffer cmd, VkImageView target_img_view);
+  void drawBackground(VkCommandBuffer cmd);
+  void drawGeometry(VkCommandBuffer cmd);
 
   void createSwapchain(int w, int h);
   void destroySwapchain();

@@ -18,3 +18,5 @@ ImGui still needs dynamic rendering now?
 DescriptorPool for ImGui may *change*, the destroy callback should use value capture.
 
 vma causes too much compile warning, suppressed using `#pragma clang diagnostic` around header.
+
+Using dynamic rendering instead of `VkRenderPass`. May not work on mobile device where tile rendering is common.

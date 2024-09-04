@@ -96,13 +96,16 @@ void Engine::draw() {
   { // Drawing commands.
     vkutil::transitionImage(cmd, m_draw_image.image, VK_IMAGE_LAYOUT_UNDEFINED,
                             VK_IMAGE_LAYOUT_GENERAL);
-
     // Content Drawing.
     drawBackground(cmd);
-
-    // Copy to swapchain.
     vkutil::transitionImage(cmd, m_draw_image.image, VK_IMAGE_LAYOUT_GENERAL,
+                            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    drawGeometry(cmd);
+    // Copy to swapchain.
+    vkutil::transitionImage(cmd, m_draw_image.image,
+                            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
                             VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+
     vkutil::transitionImage(cmd, m_swapchain_imgs[swapchain_img_idx],
                             VK_IMAGE_LAYOUT_UNDEFINED,
                             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
@@ -157,6 +160,26 @@ void Engine::drawBackground(VkCommandBuffer cmd) {
                      sizeof(ComputePushConstants), &background.data);
   vkCmdDispatch(cmd, std::ceil(m_draw_extent.width / 16.f),
                 std::ceil(m_draw_extent.height / 16.f), 1);
+}
+void Engine::drawGeometry(VkCommandBuffer cmd) {
+  VkRenderingAttachmentInfo color_attach =
+      vkinit::attachmentInfo(m_draw_image.image_view, nullptr,
+                             VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+  VkRenderingInfo i_render =
+      vkinit::renderingInfo(m_draw_extent, &color_attach, nullptr);
+  vkCmdBeginRendering(cmd, &i_render);
+  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_triangle_pipeline);
+  VkViewport view_port = {.x = 0, .y = 0, .minDepth = 0.f, .maxDepth = 1.f};
+  view_port.width = m_draw_extent.width;
+  view_port.height = m_draw_extent.height;
+  vkCmdSetViewport(cmd, 0, 1, &view_port);
+  VkRect2D scissor = {};
+  scissor.offset.x = scissor.offset.y = 0;
+  scissor.extent.width = m_draw_extent.width;
+  scissor.extent.height = m_draw_extent.height;
+  vkCmdSetScissor(cmd, 0, 1, &scissor);
+  vkCmdDraw(cmd, 3, 1, 0, 0);
+  vkCmdEndRendering(cmd);
 }
 void Engine::run() {
   SDL_Event e;
@@ -418,7 +441,10 @@ void Engine::initShaderDescriptors() {
     vkDestroyDescriptorSetLayout(m_device, m_draw_image_ds_layout, nullptr);
   });
 }
-void Engine::initPipelines() { initBackgroundPipelines(); }
+void Engine::initPipelines() {
+  initBackgroundPipelines();
+  initTrianglePipeline();
+}
 void Engine::initBackgroundPipelines() {
   // Create pipeline layout.
   VkPipelineLayoutCreateInfo comp_layout = {};
@@ -439,12 +465,12 @@ void Engine::initBackgroundPipelines() {
   VkShaderModule gradient_shader;
   if (!vkutil::loadShaderModule("../../assets/shaders/gradient_color.comp.spv",
                                 m_device, &gradient_shader)) {
-    fmt::print("Error building compute shader.\n");
+    fmt::println("Error building compute shader.");
   }
   VkShaderModule sky_shader;
   if (!vkutil::loadShaderModule("../../assets/shaders/sky.comp.spv", m_device,
                                 &sky_shader)) {
-    fmt::print("Error building compute shader.\n");
+    fmt::println("Error building compute shader.");
   }
 
   // Fill shader stage info.
@@ -491,6 +517,44 @@ void Engine::initBackgroundPipelines() {
     for (auto &&pipeline : m_compute_pipelines) {
       vkDestroyPipeline(m_device, pipeline.pipeline, nullptr);
     }
+  });
+}
+void Engine::initTrianglePipeline() {
+  VkShaderModule triangle_shader_vert;
+  VkShaderModule triangle_shader_frag;
+  if (!vkutil::loadShaderModule("../../assets/shaders/triangle.vert.spv", m_device,
+                                &triangle_shader_vert)) {
+    fmt::println("Error building triangle vert shader.");
+  }
+  if (!vkutil::loadShaderModule("../../assets/shaders/triangle.frag.spv", m_device,
+                                &triangle_shader_frag)) {
+    fmt::println("Error building triangle frag shader.");
+  }
+
+  VkPipelineLayoutCreateInfo ci_pipeline_layout =
+      vkinit::pipelineLayoutCreateInfo();
+  VK_CHECK(vkCreatePipelineLayout(m_device, &ci_pipeline_layout, nullptr,
+                                  &m_triangle_pipeline_layout));
+
+  PipelineBuilder builder;
+  builder.pipeline_layout = m_triangle_pipeline_layout;
+  builder.setShaders(triangle_shader_vert, triangle_shader_frag);
+  builder.setInputTopology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+  builder.setPolygonMode(VK_POLYGON_MODE_FILL);
+  builder.setCullMode(VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE);
+  builder.setMultisamplingNone();
+  builder.disableBlending();
+  builder.disableDepthTest();
+  builder.setColorAttachFormat(m_draw_image.image_format);
+  builder.setDepthFormat(VK_FORMAT_UNDEFINED);
+  m_triangle_pipeline = builder.buildPipeline(m_device);
+
+  vkDestroyShaderModule(m_device, triangle_shader_vert, nullptr);
+  vkDestroyShaderModule(m_device, triangle_shader_frag, nullptr);
+
+  m_main_deletion_queue.push([&]() {
+    vkDestroyPipelineLayout(m_device, m_triangle_pipeline_layout, nullptr);
+    vkDestroyPipeline(m_device, m_triangle_pipeline, nullptr);
   });
 }
 
