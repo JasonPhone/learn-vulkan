@@ -10,3 +10,4 @@ lib/
 *.a
 *.pdb
 *.dll
+*.spv
