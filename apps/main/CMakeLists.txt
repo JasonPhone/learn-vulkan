@@ -69,7 +69,7 @@ if(WIN32)
     tinyobjloader
     imgui
     vk-bootstrap::vk-bootstrap
-    vma
+    # vma # Impl in ./src/engine.cpp
     fmt::fmt
 
     # Project binaries.

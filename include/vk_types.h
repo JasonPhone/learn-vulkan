@@ -62,5 +62,29 @@ struct AllocatedImage {
   VkFormat image_format;
 
   VmaAllocation allocation;
+};
+/**
+ * @brief Push data to shader using 'Buffer Device Address'.
+ */
+struct AllocatedBuffer {
+  VkBuffer buffer;
 
+  VmaAllocation allocation;
+  VmaAllocationInfo alloc_info;
+};
+struct Vertex {
+  glm::vec3 position;
+  float uv_x;
+  glm::vec3 normal;
+  float uv_y;
+  glm::vec4 color;
+};
+struct GPUMeshBuffers {
+  AllocatedBuffer index_buffer;
+  AllocatedBuffer vertex_buffer;
+  VkDeviceAddress vertex_buffer_address;
+};
+struct GPUDrawPushConstants {
+  glm::mat4 world_mat;
+  VkDeviceAddress vertex_buffer_address;
 };

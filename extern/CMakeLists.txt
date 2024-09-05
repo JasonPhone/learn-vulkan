@@ -4,5 +4,6 @@ add_subdirectory(vk-bootstrap)
 add_subdirectory(fmt)
 
 include(imgui.cmake)
-include(vma.cmake)
+# Impl in ./src/engine.cpp
+# include(vma.cmake)
 include(stb.cmake)

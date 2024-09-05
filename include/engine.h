@@ -56,6 +56,8 @@ public:
   void draw();
   void cleanup();
   void immediateSubmit(std::function<void(VkCommandBuffer cmd)> &&func);
+  GPUMeshBuffers uploadMesh(std::span<uint32_t> indices,
+                            std::span<Vertex> vertices);
 
   bool stop_rendering{false};
   bool is_initialized{false};
@@ -102,10 +104,11 @@ private:
   VkPipeline m_default_pipeline;
   std::vector<ComputePipeline> m_compute_pipelines;
   int m_cur_comp_pipeline_idx = 0;
-
   VkPipelineLayout m_triangle_pipeline_layout;
   VkPipeline m_triangle_pipeline;
-
+  VkPipelineLayout m_simple_mesh_pipeline_layout;
+  VkPipeline m_simple_mesh_pipeline;
+  GPUMeshBuffers m_simple_mesh;
 
   VkFence m_imm_fence;
   VkCommandBuffer m_imm_cmd;
@@ -121,6 +124,8 @@ private:
   void initPipelines();
   void initBackgroundPipelines();
   void initTrianglePipeline();
+  void initSimpleMeshPipeline();
+  void initDefaultMesh();
 
   void initImGui();
   void drawImGui(VkCommandBuffer cmd, VkImageView target_img_view);
@@ -129,4 +134,9 @@ private:
 
   void createSwapchain(int w, int h);
   void destroySwapchain();
+
+  AllocatedBuffer createBuffer(size_t alloc_size, VkBufferUsageFlags usage,
+                               VmaMemoryUsage mem_usage);
+  void destroyBuffer(const AllocatedBuffer &buffer);
+
 };
