@@ -102,7 +102,6 @@ void Engine::draw() {
   { // Drawing commands.
     vkutil::transitionImage(cmd, m_color_image.image, VK_IMAGE_LAYOUT_UNDEFINED,
                             VK_IMAGE_LAYOUT_GENERAL);
-    // Content Drawing.
     drawBackground(cmd);
     vkutil::transitionImage(cmd, m_color_image.image, VK_IMAGE_LAYOUT_GENERAL,
                             VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
@@ -191,7 +190,8 @@ void Engine::drawGeometry(VkCommandBuffer cmd) {
     GPUDrawPushConstants push_constants;
     push_constants.vertex_buffer_address =
         m_meshes[2]->mesh_buffers.vertex_buffer_address;
-    glm::mat4 view = glm::translate(glm::vec3{0, 0, -5});
+    glm::mat4 view = glm::rotate(glm::radians(-40.f), glm::vec3{1.f, 0.f, 0.f});
+    view = glm::translate(glm::vec3{0, 0, -3}) * view;
     glm::mat4 projection = glm::perspective(
         glm::radians(70.f), 1.f * m_draw_extent.width / m_draw_extent.height,
         // 10000.f, 0.1f);

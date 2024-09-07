@@ -79,6 +79,7 @@ if(WIN32)
   )
 
   add_dependencies(${PROJECT_NAME} Shaders)
+  target_compile_definitions(${PROJECT_NAME} PUBLIC GLM_FORCE_DEPTH_ZERO_TO_ONE)
 
   add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
