@@ -102,12 +102,9 @@ private:
   VkDescriptorSet m_draw_image_ds;
   VkDescriptorSetLayout m_draw_image_ds_layout;
 
-  VkPipelineLayout m_default_pipeline_layout;
-  VkPipeline m_default_pipeline;
+  VkPipelineLayout m_compute_pipeline_layout;
   std::vector<ComputePipeline> m_compute_pipelines;
   int m_cur_comp_pipeline_idx = 0;
-  VkPipelineLayout m_triangle_pipeline_layout;
-  VkPipeline m_triangle_pipeline;
   VkPipelineLayout m_simple_mesh_pipeline_layout;
   VkPipeline m_simple_mesh_pipeline;
   GPUMeshBuffers m_simple_mesh;
@@ -127,7 +124,6 @@ private:
   void initShaderDescriptors();
   void initPipelines();
   void initBackgroundPipelines();
-  void initTrianglePipeline();
   void initSimpleMeshPipeline();
   void initDefaultMesh();
 

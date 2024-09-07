@@ -159,9 +159,9 @@ void Engine::drawBackground(VkCommandBuffer cmd) {
   auto &background = m_compute_pipelines[m_cur_comp_pipeline_idx];
   vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, background.pipeline);
   vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
-                          m_default_pipeline_layout, 0, 1, &m_draw_image_ds, 0,
+                          m_compute_pipeline_layout, 0, 1, &m_draw_image_ds, 0,
                           nullptr);
-  vkCmdPushConstants(cmd, m_default_pipeline_layout,
+  vkCmdPushConstants(cmd, m_compute_pipeline_layout,
                      VK_SHADER_STAGE_COMPUTE_BIT, 0,
                      sizeof(ComputePushConstants), &background.data);
   vkCmdDispatch(cmd, std::ceil(m_draw_extent.width / 16.f),
@@ -493,7 +493,6 @@ void Engine::initPipelines() {
   // Compute pipelines.
   initBackgroundPipelines();
   // Graphics pipelines.
-  initTrianglePipeline();
   initSimpleMeshPipeline();
 }
 void Engine::initBackgroundPipelines() {
@@ -510,7 +509,7 @@ void Engine::initBackgroundPipelines() {
   comp_layout.pPushConstantRanges = &push_range;
   comp_layout.pushConstantRangeCount = 1;
   VK_CHECK(vkCreatePipelineLayout(m_device, &comp_layout, nullptr,
-                                  &m_default_pipeline_layout));
+                                  &m_compute_pipeline_layout));
 
   // Load shader data.
   VkShaderModule gradient_shader;
@@ -523,7 +522,6 @@ void Engine::initBackgroundPipelines() {
                                 &sky_shader)) {
     fmt::println("Error building compute shader.");
   }
-
   // Fill shader stage info.
   VkPipelineShaderStageCreateInfo stage_info = {};
   stage_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -531,15 +529,14 @@ void Engine::initBackgroundPipelines() {
   stage_info.stage = VK_SHADER_STAGE_COMPUTE_BIT;
   stage_info.module = gradient_shader;
   stage_info.pName = "main";
-
   // Create pipeline.
   VkComputePipelineCreateInfo comp_pipeline_info = {};
   comp_pipeline_info.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
   comp_pipeline_info.pNext = nullptr;
-  comp_pipeline_info.layout = m_default_pipeline_layout;
+  comp_pipeline_info.layout = m_compute_pipeline_layout;
   comp_pipeline_info.stage = stage_info;
   ComputePipeline gradient;
-  gradient.layout = m_default_pipeline_layout;
+  gradient.layout = m_compute_pipeline_layout;
   gradient.name = "gradient";
   gradient.data = {};
   gradient.data.data1 = glm::vec4{1, 0, 0, 1};
@@ -551,7 +548,7 @@ void Engine::initBackgroundPipelines() {
 
   stage_info.module = sky_shader;
   ComputePipeline sky;
-  sky.layout = m_default_pipeline_layout;
+  sky.layout = m_compute_pipeline_layout;
   sky.name = "sky";
   sky.data = {};
   sky.data.data1 = glm::vec4{0.1, 0.2, 0.4, 0.97};
@@ -564,48 +561,10 @@ void Engine::initBackgroundPipelines() {
   vkDestroyShaderModule(m_device, gradient_shader, nullptr);
   vkDestroyShaderModule(m_device, sky_shader, nullptr);
   m_main_deletion_queue.push([&]() {
-    vkDestroyPipelineLayout(m_device, m_default_pipeline_layout, nullptr);
+    vkDestroyPipelineLayout(m_device, m_compute_pipeline_layout, nullptr);
     for (auto &&pipeline : m_compute_pipelines) {
       vkDestroyPipeline(m_device, pipeline.pipeline, nullptr);
     }
-  });
-}
-void Engine::initTrianglePipeline() {
-  VkShaderModule triangle_shader_vert;
-  VkShaderModule triangle_shader_frag;
-  if (!vkutil::loadShaderModule("../../assets/shaders/triangle.vert.spv",
-                                m_device, &triangle_shader_vert)) {
-    fmt::println("Error loading triangle vert shader.");
-  }
-  if (!vkutil::loadShaderModule("../../assets/shaders/triangle.frag.spv",
-                                m_device, &triangle_shader_frag)) {
-    fmt::println("Error loading triangle frag shader.");
-  }
-
-  VkPipelineLayoutCreateInfo ci_pipeline_layout =
-      vkinit::pipelineLayoutCreateInfo();
-  VK_CHECK(vkCreatePipelineLayout(m_device, &ci_pipeline_layout, nullptr,
-                                  &m_triangle_pipeline_layout));
-
-  PipelineBuilder builder;
-  builder.pipeline_layout = m_triangle_pipeline_layout;
-  builder.setShaders(triangle_shader_vert, triangle_shader_frag);
-  builder.setInputTopology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
-  builder.setPolygonMode(VK_POLYGON_MODE_FILL);
-  builder.setCullMode(VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE);
-  builder.setMultisamplingNone();
-  builder.disableBlending();
-  builder.disableDepthTest();
-  builder.setColorAttachFormat(m_color_image.format);
-  builder.setDepthFormat(VK_FORMAT_UNDEFINED);
-  m_triangle_pipeline = builder.buildPipeline(m_device);
-
-  vkDestroyShaderModule(m_device, triangle_shader_vert, nullptr);
-  vkDestroyShaderModule(m_device, triangle_shader_frag, nullptr);
-
-  m_main_deletion_queue.push([&]() {
-    vkDestroyPipelineLayout(m_device, m_triangle_pipeline_layout, nullptr);
-    vkDestroyPipeline(m_device, m_triangle_pipeline, nullptr);
   });
 }
 void Engine::initSimpleMeshPipeline() {
