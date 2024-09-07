@@ -22,7 +22,6 @@ void main() {
 
   if (texelCoord.x < size.x && texelCoord.y < size.y) {
     float blend = float(texelCoord.y) / (size.y);
-
     imageStore(image, texelCoord, mix(topColor, bottomColor, blend));
   }
 }

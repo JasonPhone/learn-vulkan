@@ -497,69 +497,98 @@ void Engine::initPipelines() {
 }
 void Engine::initBackgroundPipelines() {
   // Create pipeline layout.
-  VkPipelineLayoutCreateInfo comp_layout = {};
-  comp_layout.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-  comp_layout.pNext = nullptr;
-  comp_layout.pSetLayouts = &m_draw_image_ds_layout;
-  comp_layout.setLayoutCount = 1;
+  VkPipelineLayoutCreateInfo ci_comp_layout = {};
+  ci_comp_layout.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+  ci_comp_layout.pNext = nullptr;
+  ci_comp_layout.pSetLayouts = &m_draw_image_ds_layout;
+  ci_comp_layout.setLayoutCount = 1;
   VkPushConstantRange push_range = {};
   push_range.offset = 0;
   push_range.size = sizeof(ComputePushConstants);
   push_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-  comp_layout.pPushConstantRanges = &push_range;
-  comp_layout.pushConstantRangeCount = 1;
-  VK_CHECK(vkCreatePipelineLayout(m_device, &comp_layout, nullptr,
+  ci_comp_layout.pPushConstantRanges = &push_range;
+  ci_comp_layout.pushConstantRangeCount = 1;
+  VK_CHECK(vkCreatePipelineLayout(m_device, &ci_comp_layout, nullptr,
                                   &m_compute_pipeline_layout));
 
-  // Load shader data.
+  // Common info.
+  VkPipelineShaderStageCreateInfo ci_stage = {};
+  ci_stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+  ci_stage.pNext = nullptr;
+  ci_stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+  ci_stage.pName = "main";
+  VkComputePipelineCreateInfo ci_comp_pipeline = {};
+  ci_comp_pipeline.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+  ci_comp_pipeline.pNext = nullptr;
+  ci_comp_pipeline.layout = m_compute_pipeline_layout;
+  ci_comp_pipeline.stage = ci_stage; // Copy by values.
+
+  // Fill shader stage info for different shaders.
+  VkShaderModule solid_shader;
+  if (!vkutil::loadShaderModule("../../assets/shaders/solid.comp.spv", m_device,
+                                &solid_shader)) {
+    fmt::println("Error building compute shader.");
+  }
+  ComputePipeline solid;
+  solid.layout = m_compute_pipeline_layout;
+  solid.name = "solid";
+  solid.data = {};
+  ci_comp_pipeline.stage.module = solid_shader; // Update this stage info, not previous struct.
+  VK_CHECK(vkCreateComputePipelines(m_device, VK_NULL_HANDLE, 1,
+                                    &ci_comp_pipeline, nullptr,
+                                    &solid.pipeline));
+  m_compute_pipelines.push_back(solid);
+  vkDestroyShaderModule(m_device, solid_shader, nullptr);
+
+  ComputePipeline gradient;
   VkShaderModule gradient_shader;
   if (!vkutil::loadShaderModule("../../assets/shaders/gradient_color.comp.spv",
                                 m_device, &gradient_shader)) {
     fmt::println("Error building compute shader.");
   }
-  VkShaderModule sky_shader;
-  if (!vkutil::loadShaderModule("../../assets/shaders/sky.comp.spv", m_device,
-                                &sky_shader)) {
-    fmt::println("Error building compute shader.");
-  }
-  // Fill shader stage info.
-  VkPipelineShaderStageCreateInfo stage_info = {};
-  stage_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-  stage_info.pNext = nullptr;
-  stage_info.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-  stage_info.module = gradient_shader;
-  stage_info.pName = "main";
-  // Create pipeline.
-  VkComputePipelineCreateInfo comp_pipeline_info = {};
-  comp_pipeline_info.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
-  comp_pipeline_info.pNext = nullptr;
-  comp_pipeline_info.layout = m_compute_pipeline_layout;
-  comp_pipeline_info.stage = stage_info;
-  ComputePipeline gradient;
   gradient.layout = m_compute_pipeline_layout;
   gradient.name = "gradient";
   gradient.data = {};
   gradient.data.data1 = glm::vec4{1, 0, 0, 1};
   gradient.data.data2 = glm::vec4{0, 0, 1, 1};
+  ci_comp_pipeline.stage.module = gradient_shader;
   VK_CHECK(vkCreateComputePipelines(m_device, VK_NULL_HANDLE, 1,
-                                    &comp_pipeline_info, nullptr,
+                                    &ci_comp_pipeline, nullptr,
                                     &gradient.pipeline));
   m_compute_pipelines.push_back(gradient);
+  vkDestroyShaderModule(m_device, gradient_shader, nullptr);
 
-  stage_info.module = sky_shader;
+  VkShaderModule grid_shader;
+  if (!vkutil::loadShaderModule("../../assets/shaders/grid.comp.spv", m_device,
+                                &grid_shader)) {
+    fmt::println("Error building compute shader.");
+  }
+  ComputePipeline grid;
+  grid.layout = m_compute_pipeline_layout;
+  grid.name = "gradient";
+  grid.data = {};
+  ci_comp_pipeline.stage.module = grid_shader;
+  VK_CHECK(vkCreateComputePipelines(
+      m_device, VK_NULL_HANDLE, 1, &ci_comp_pipeline, nullptr, &grid.pipeline));
+  m_compute_pipelines.push_back(grid);
+  vkDestroyShaderModule(m_device, grid_shader, nullptr);
+
+  VkShaderModule sky_shader;
+  if (!vkutil::loadShaderModule("../../assets/shaders/sky.comp.spv", m_device,
+                                &sky_shader)) {
+    fmt::println("Error building compute shader.");
+  }
   ComputePipeline sky;
   sky.layout = m_compute_pipeline_layout;
   sky.name = "sky";
   sky.data = {};
   sky.data.data1 = glm::vec4{0.1, 0.2, 0.4, 0.97};
+  ci_comp_pipeline.stage.module = sky_shader;
   VK_CHECK(vkCreateComputePipelines(m_device, VK_NULL_HANDLE, 1,
-                                    &comp_pipeline_info, nullptr,
-                                    &sky.pipeline));
+                                    &ci_comp_pipeline, nullptr, &sky.pipeline));
   m_compute_pipelines.push_back(sky);
-
-  // Shader is already in the pipeline.
-  vkDestroyShaderModule(m_device, gradient_shader, nullptr);
   vkDestroyShaderModule(m_device, sky_shader, nullptr);
+
   m_main_deletion_queue.push([&]() {
     vkDestroyPipelineLayout(m_device, m_compute_pipeline_layout, nullptr);
     for (auto &&pipeline : m_compute_pipelines) {
