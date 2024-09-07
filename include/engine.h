@@ -61,9 +61,10 @@ public:
                             std::span<Vertex> vertices);
 
   bool stop_rendering{false};
+  bool require_resize{false};
   bool is_initialized{false};
   int frame_number{0};
-  VkExtent2D window_extent{1280, 720};
+  VkExtent2D window_extent{1920, 1080};
 
   struct SDL_Window *window{nullptr};
 
@@ -85,6 +86,8 @@ private:
   std::vector<VkImage> m_swapchain_imgs;
   std::vector<VkImageView> m_swapchain_img_views;
   VkExtent2D m_swapchain_extent;
+  VkExtent2D m_draw_extent;
+  float m_render_scale = 1.f;
 
   FrameData m_frames[kFrameOverlap];
   VkQueue m_graphic_queue;
@@ -96,7 +99,6 @@ private:
 
   AllocatedImage m_color_image;
   AllocatedImage m_depth_image;
-  VkExtent2D m_draw_extent;
 
   DescriptorAllocator m_global_ds_allocator;
   VkDescriptorSet m_draw_image_ds;
@@ -133,10 +135,10 @@ private:
   void drawGeometry(VkCommandBuffer cmd);
 
   void createSwapchain(int w, int h);
+  void resizeSwapchain();
   void destroySwapchain();
 
   AllocatedBuffer createBuffer(size_t alloc_size, VkBufferUsageFlags usage,
                                VmaMemoryUsage mem_usage);
   void destroyBuffer(const AllocatedBuffer &buffer);
-
 };

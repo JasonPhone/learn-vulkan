@@ -25,9 +25,17 @@ struct PipelineBuilder {
   void setPolygonMode(VkPolygonMode mode);
   void setCullMode(VkCullModeFlags mode, VkFrontFace front);
   void setMultisamplingNone();
-  void disableBlending();
   void setColorAttachFormat(VkFormat format);
   void setDepthFormat(VkFormat format);
   void disableDepthTest();
   void enableDepthTest(bool enable_depth_write, VkCompareOp comp);
+  /**
+   * @note
+   *  Blending logic:
+   *    outColor = srcColor * srcBlendFactor <op> dstColor * dstBlendFactor.
+   *  srcColor is what we are processing, dstColor is what already in the image.
+   */
+  void disableBlending();
+  void enableBlendingAdd();
+  void enableBlendingAlpha();
 };

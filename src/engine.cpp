@@ -32,7 +32,9 @@ void Engine::init() {
 
   // We initialize SDL and create a window with it.
   SDL_Init(SDL_INIT_VIDEO);
-  SDL_WindowFlags window_flags = (SDL_WindowFlags)(SDL_WINDOW_VULKAN);
+  SDL_WindowFlags window_flags =
+  (SDL_WindowFlags)(SDL_WINDOW_VULKAN);
+  // (SDL_WindowFlags)(SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE);
   window = SDL_CreateWindow("Vulkan Engine", window_extent.width,
                             window_extent.height, window_flags);
 
@@ -85,9 +87,13 @@ void Engine::draw() {
   // Request an image to draw to.
   uint32_t swapchain_img_idx;
   // Will signal the semaphore.
-  VK_CHECK(vkAcquireNextImageKHR(m_device, m_swapchain, VK_ONE_SEC,
-                                 getCurrentFrame().swapchain_semaphore, nullptr,
-                                 &swapchain_img_idx));
+  VkResult e = vkAcquireNextImageKHR(m_device, m_swapchain, VK_ONE_SEC,
+                                     getCurrentFrame().swapchain_semaphore,
+                                     nullptr, &swapchain_img_idx);
+  if (e == VK_ERROR_OUT_OF_DATE_KHR) {
+    require_resize = true;
+    return;
+  }
 
   // Clear the cmd buffer.
   VkCommandBuffer cmd = getCurrentFrame().cmd_buffer_main;
@@ -96,8 +102,12 @@ void Engine::draw() {
   VkCommandBufferBeginInfo cmd_begin_info =
       vkinit::cmdBufferBeginInfo(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
 
-  m_draw_extent.width = m_color_image.extent.width;
-  m_draw_extent.height = m_color_image.extent.height;
+  m_draw_extent.width =
+      std::min(m_color_image.extent.width, m_swapchain_extent.width) *
+      m_render_scale;
+  m_draw_extent.height =
+      std::min(m_color_image.extent.height, m_swapchain_extent.height) *
+      m_render_scale;
   VK_CHECK(vkBeginCommandBuffer(cmd, &cmd_begin_info));
   { // Drawing commands.
     vkutil::transitionImage(cmd, m_color_image.image, VK_IMAGE_LAYOUT_UNDEFINED,
@@ -151,7 +161,10 @@ void Engine::draw() {
   present_info.waitSemaphoreCount = 1;
   present_info.pImageIndices = &swapchain_img_idx;
 
-  VK_CHECK(vkQueuePresentKHR(m_graphic_queue, &present_info));
+  e = vkQueuePresentKHR(m_graphic_queue, &present_info);
+  if (e == VK_ERROR_OUT_OF_DATE_KHR) {
+    require_resize = true;
+  }
 
   frame_number++;
 }
@@ -228,7 +241,8 @@ void Engine::run() {
       }
       ImGui_ImplSDL3_ProcessEvent(&e);
     }
-    // Do not draw if we are minimized.
+    if (require_resize)
+      resizeSwapchain();
     if (stop_rendering) {
       // Throttle the speed to avoid the endless spinning.
       std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -241,6 +255,7 @@ void Engine::run() {
     // UI layout.
     {
       if (ImGui::Begin("background")) {
+        ImGui::SliderFloat("Render Scale", &m_render_scale, 0.3f, 1.f);
         auto &selected_pipeline = m_compute_pipelines[m_cur_comp_pipeline_idx];
         ImGui::Text("Selected Compute Pipeline: %s", selected_pipeline.name);
         ImGui::SliderInt("Effect Index", &m_cur_comp_pipeline_idx, 0,
@@ -523,6 +538,7 @@ void Engine::initBackgroundPipelines() {
   ci_comp_pipeline.layout = m_compute_pipeline_layout;
   ci_comp_pipeline.stage = ci_stage; // Copy by values.
 
+  // TODO Make this a func.
   // Fill shader stage info for different shaders.
   VkShaderModule solid_shader;
   if (!vkutil::loadShaderModule("../../assets/shaders/solid.comp.spv", m_device,
@@ -533,7 +549,8 @@ void Engine::initBackgroundPipelines() {
   solid.layout = m_compute_pipeline_layout;
   solid.name = "solid";
   solid.data = {};
-  ci_comp_pipeline.stage.module = solid_shader; // Update this stage info, not previous struct.
+  ci_comp_pipeline.stage.module =
+      solid_shader; // Update this stage info, not previous struct.
   VK_CHECK(vkCreateComputePipelines(m_device, VK_NULL_HANDLE, 1,
                                     &ci_comp_pipeline, nullptr,
                                     &solid.pipeline));
@@ -624,7 +641,8 @@ void Engine::initSimpleMeshPipeline() {
   builder.setPolygonMode(VK_POLYGON_MODE_FILL);
   builder.setCullMode(VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE);
   builder.setMultisamplingNone();
-  builder.disableBlending();
+  // builder.disableBlending();
+  builder.enableBlendingAdd();
   builder.enableDepthTest(true, VK_COMPARE_OP_LESS_OR_EQUAL);
   builder.setColorAttachFormat(m_color_image.format);
   builder.setDepthFormat(m_depth_image.format);
@@ -831,4 +849,12 @@ void Engine::initDefaultMesh() {
       destroyBuffer(mesh->mesh_buffers.index_buffer);
     });
   }
+}
+void Engine::resizeSwapchain() {
+  vkDeviceWaitIdle(m_device);
+  destroySwapchain();
+  int w, h;
+  SDL_GetWindowSize(window, &w, &h);
+  createSwapchain(w, h);
+  require_resize = false;
 }
