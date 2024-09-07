@@ -17,7 +17,8 @@
 #include <chrono>
 #include <thread>
 
-#include <iostream>
+#define GLM_ENABLE_EXPERIMENTAL
+#include <glm/gtx/transform.hpp>
 
 constexpr bool bUseValidationLayers = true;
 
@@ -95,26 +96,27 @@ void Engine::draw() {
   VkCommandBufferBeginInfo cmd_begin_info =
       vkinit::cmdBufferBeginInfo(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
 
-  m_draw_extent.width = m_draw_image.image_extent.width;
-  m_draw_extent.height = m_draw_image.image_extent.height;
+  m_draw_extent.width = m_color_image.extent.width;
+  m_draw_extent.height = m_color_image.extent.height;
   VK_CHECK(vkBeginCommandBuffer(cmd, &cmd_begin_info));
   { // Drawing commands.
-    vkutil::transitionImage(cmd, m_draw_image.image, VK_IMAGE_LAYOUT_UNDEFINED,
+    vkutil::transitionImage(cmd, m_color_image.image, VK_IMAGE_LAYOUT_UNDEFINED,
                             VK_IMAGE_LAYOUT_GENERAL);
     // Content Drawing.
     drawBackground(cmd);
-    vkutil::transitionImage(cmd, m_draw_image.image, VK_IMAGE_LAYOUT_GENERAL,
+    vkutil::transitionImage(cmd, m_color_image.image, VK_IMAGE_LAYOUT_GENERAL,
                             VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    vkutil::transitionImage(cmd, m_depth_image.image, VK_IMAGE_LAYOUT_UNDEFINED,
+                            VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
     drawGeometry(cmd);
     // Copy to swapchain.
-    vkutil::transitionImage(cmd, m_draw_image.image,
+    vkutil::transitionImage(cmd, m_color_image.image,
                             VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
                             VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-
     vkutil::transitionImage(cmd, m_swapchain_imgs[swapchain_img_idx],
                             VK_IMAGE_LAYOUT_UNDEFINED,
                             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-    vkutil::copyImage(cmd, m_draw_image.image,
+    vkutil::copyImage(cmd, m_color_image.image,
                       m_swapchain_imgs[swapchain_img_idx], m_draw_extent,
                       m_swapchain_extent);
     vkutil::transitionImage(cmd, m_swapchain_imgs[swapchain_img_idx],
@@ -167,15 +169,16 @@ void Engine::drawBackground(VkCommandBuffer cmd) {
                 std::ceil(m_draw_extent.height / 16.f), 1);
 }
 void Engine::drawGeometry(VkCommandBuffer cmd) {
-  VkRenderingAttachmentInfo color_attach =
-      vkinit::attachmentInfo(m_draw_image.image_view, nullptr,
-                             VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+  VkRenderingAttachmentInfo color_attach = vkinit::attachmentInfo(
+      m_color_image.view, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+  VkRenderingAttachmentInfo depth_attach = vkinit::depthAttachmentInfo(
+      m_depth_image.view, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
   VkRenderingInfo i_render =
-      vkinit::renderingInfo(m_draw_extent, &color_attach, nullptr);
+      vkinit::renderingInfo(m_draw_extent, &color_attach, &depth_attach);
   vkCmdBeginRendering(cmd, &i_render);
   {
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                      m_triangle_pipeline);
+                      m_simple_mesh_pipeline);
     VkViewport view_port = {.x = 0, .y = 0, .minDepth = 0.f, .maxDepth = 1.f};
     view_port.width = m_draw_extent.width;
     view_port.height = m_draw_extent.height;
@@ -185,19 +188,23 @@ void Engine::drawGeometry(VkCommandBuffer cmd) {
     scissor.extent.width = m_draw_extent.width;
     scissor.extent.height = m_draw_extent.height;
     vkCmdSetScissor(cmd, 0, 1, &scissor);
-    vkCmdDraw(cmd, 3, 1, 0, 0);
-
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                      m_simple_mesh_pipeline);
     GPUDrawPushConstants push_constants;
-    push_constants.world_mat = glm::mat4{1.f};
-    push_constants.vertex_buffer_address = m_simple_mesh.vertex_buffer_address;
+    push_constants.vertex_buffer_address =
+        m_meshes[2]->mesh_buffers.vertex_buffer_address;
+    glm::mat4 view = glm::translate(glm::vec3{0, 0, -5});
+    glm::mat4 projection = glm::perspective(
+        glm::radians(70.f), 1.f * m_draw_extent.width / m_draw_extent.height,
+        // 10000.f, 0.1f);
+        0.1f, 10000.f);
+    projection[1][1] *= -1; // Reverse Y-axis.
+    push_constants.world_mat = projection * view;
     vkCmdPushConstants(cmd, m_simple_mesh_pipeline_layout,
                        VK_SHADER_STAGE_VERTEX_BIT, 0,
                        sizeof(GPUDrawPushConstants), &push_constants);
-    vkCmdBindIndexBuffer(cmd, m_simple_mesh.index_buffer.buffer, 0,
+    vkCmdBindIndexBuffer(cmd, m_meshes[2]->mesh_buffers.index_buffer.buffer, 0,
                          VK_INDEX_TYPE_UINT32);
-    vkCmdDrawIndexed(cmd, 6, 1, 0, 0, 0);
+    vkCmdDrawIndexed(cmd, m_meshes[2]->surfaces[0].count, 1,
+                     m_meshes[2]->surfaces[0].start_index, 0, 0);
   }
 
   vkCmdEndRendering(cmd);
@@ -318,36 +325,56 @@ void Engine::initSwapchain() {
   createSwapchain(window_extent.width, window_extent.height);
 
   // Custom draw image.
-  VkExtent3D draw_img_ext = {window_extent.width, window_extent.height, 1};
-  m_draw_image.image_format = VK_FORMAT_R16G16B16A16_SFLOAT;
-  m_draw_image.image_extent = draw_img_ext;
-  VkImageUsageFlags draw_img_usage_flags = {};
+  VkExtent3D color_img_ext = {window_extent.width, window_extent.height, 1};
+  m_color_image.format = VK_FORMAT_R16G16B16A16_SFLOAT;
+  m_color_image.extent = color_img_ext;
+  VkImageUsageFlags color_img_usage_flags = {};
   // Copy from and into.
-  draw_img_usage_flags |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
-  draw_img_usage_flags |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-  // Enable computer shader writing.
-  draw_img_usage_flags |= VK_IMAGE_USAGE_STORAGE_BIT;
+  color_img_usage_flags |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+  color_img_usage_flags |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+  // Enable compute shader writing.
+  color_img_usage_flags |= VK_IMAGE_USAGE_STORAGE_BIT;
   // Graphics pipelines draw.
-  draw_img_usage_flags |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-
-  VkImageCreateInfo img_create_info = vkinit::imageCreateInfo(
-      m_draw_image.image_format, draw_img_usage_flags, draw_img_ext);
-
-  VmaAllocationCreateInfo img_alloc_info = {};
-  img_alloc_info.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+  color_img_usage_flags |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+  VkImageCreateInfo ci_color_img = vkinit::imageCreateInfo(
+      m_color_image.format, color_img_usage_flags, m_color_image.extent);
+  VmaAllocationCreateInfo ci_color_img_alloc = {};
+  ci_color_img_alloc.usage = VMA_MEMORY_USAGE_GPU_ONLY;
   // Double check the allocation is in VRAM.
-  img_alloc_info.requiredFlags =
+  ci_color_img_alloc.requiredFlags =
       VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-  vmaCreateImage(m_allocator, &img_create_info, &img_alloc_info,
-                 &m_draw_image.image, &m_draw_image.allocation, nullptr);
+  vmaCreateImage(m_allocator, &ci_color_img, &ci_color_img_alloc,
+                 &m_color_image.image, &m_color_image.allocation, nullptr);
+  VkImageViewCreateInfo ci_color_img_view = vkinit::imageViewCreateInfo(
+      m_color_image.format, m_color_image.image, VK_IMAGE_ASPECT_COLOR_BIT);
+  VK_CHECK(vkCreateImageView(m_device, &ci_color_img_view, nullptr,
+                             &m_color_image.view));
 
-  VkImageViewCreateInfo img_view_create_info = vkinit::imageViewCreateInfo(
-      m_draw_image.image_format, m_draw_image.image, VK_IMAGE_ASPECT_COLOR_BIT);
-  VK_CHECK(vkCreateImageView(m_device, &img_view_create_info, nullptr,
-                             &m_draw_image.image_view));
+  VkExtent3D depth_img_ext = {window_extent.width, window_extent.height, 1};
+  m_depth_image.format = VK_FORMAT_D32_SFLOAT;
+  m_depth_image.extent = depth_img_ext;
+  VkImageUsageFlags draw_depth_usage_flags = {};
+  draw_depth_usage_flags |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+  VkImageCreateInfo ci_depth_image = vkinit::imageCreateInfo(
+      m_depth_image.format, draw_depth_usage_flags, m_depth_image.extent);
+  VmaAllocationCreateInfo ci_depth_img_alloc = {};
+  ci_depth_img_alloc.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+  // Double check the allocation is in VRAM.
+  ci_depth_img_alloc.requiredFlags =
+      VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+  vmaCreateImage(m_allocator, &ci_depth_image, &ci_depth_img_alloc,
+                 &m_depth_image.image, &m_depth_image.allocation, nullptr);
+  VkImageViewCreateInfo ci_depth_view = vkinit::imageViewCreateInfo(
+      m_depth_image.format, m_depth_image.image, VK_IMAGE_ASPECT_DEPTH_BIT);
+  VK_CHECK(vkCreateImageView(m_device, &ci_depth_view, nullptr,
+                             &m_depth_image.view));
+
   m_main_deletion_queue.push([&]() {
-    vkDestroyImageView(m_device, m_draw_image.image_view, nullptr);
-    vmaDestroyImage(m_allocator, m_draw_image.image, m_draw_image.allocation);
+    vkDestroyImageView(m_device, m_color_image.view, nullptr);
+    vmaDestroyImage(m_allocator, m_color_image.image, m_color_image.allocation);
+
+    vkDestroyImageView(m_device, m_depth_image.view, nullptr);
+    vmaDestroyImage(m_allocator, m_depth_image.image, m_depth_image.allocation);
   });
 }
 void Engine::initCommands() {
@@ -444,7 +471,7 @@ void Engine::initShaderDescriptors() {
 
   VkDescriptorImageInfo img_info = {};
   img_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-  img_info.imageView = m_draw_image.image_view; // Here connect the data stream.
+  img_info.imageView = m_color_image.view; // Here connect the data stream.
 
   VkWriteDescriptorSet draw_img_write = {};
   draw_img_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -525,7 +552,7 @@ void Engine::initBackgroundPipelines() {
   stage_info.module = sky_shader;
   ComputePipeline sky;
   sky.layout = m_default_pipeline_layout;
-  sky.name = "gradient";
+  sky.name = "sky";
   sky.data = {};
   sky.data.data1 = glm::vec4{0.1, 0.2, 0.4, 0.97};
   VK_CHECK(vkCreateComputePipelines(m_device, VK_NULL_HANDLE, 1,
@@ -569,7 +596,7 @@ void Engine::initTrianglePipeline() {
   builder.setMultisamplingNone();
   builder.disableBlending();
   builder.disableDepthTest();
-  builder.setColorAttachFormat(m_draw_image.image_format);
+  builder.setColorAttachFormat(m_color_image.format);
   builder.setDepthFormat(VK_FORMAT_UNDEFINED);
   m_triangle_pipeline = builder.buildPipeline(m_device);
 
@@ -610,9 +637,9 @@ void Engine::initSimpleMeshPipeline() {
   builder.setCullMode(VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE);
   builder.setMultisamplingNone();
   builder.disableBlending();
-  builder.disableDepthTest();
-  builder.setColorAttachFormat(m_draw_image.image_format);
-  builder.setDepthFormat(VK_FORMAT_UNDEFINED);
+  builder.enableDepthTest(true, VK_COMPARE_OP_LESS_OR_EQUAL);
+  builder.setColorAttachFormat(m_color_image.format);
+  builder.setDepthFormat(m_depth_image.format);
   m_simple_mesh_pipeline = builder.buildPipeline(m_device);
 
   vkDestroyShaderModule(m_device, mesh_shader_vert, nullptr);
@@ -808,4 +835,12 @@ void Engine::initDefaultMesh() {
     destroyBuffer(m_simple_mesh.index_buffer);
     destroyBuffer(m_simple_mesh.vertex_buffer);
   });
+
+  m_meshes = loadGltfMeshes(this, "../../assets/models/basic_mesh.glb").value();
+  for (auto &&mesh : m_meshes) {
+    m_main_deletion_queue.push([&]() {
+      destroyBuffer(mesh->mesh_buffers.vertex_buffer);
+      destroyBuffer(mesh->mesh_buffers.index_buffer);
+    });
+  }
 }

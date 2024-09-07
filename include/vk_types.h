@@ -57,9 +57,9 @@ class ObjectBase {};
  */
 struct AllocatedImage {
   VkImage image;
-  VkImageView image_view;
-  VkExtent3D image_extent;
-  VkFormat image_format;
+  VkImageView view;
+  VkExtent3D extent;
+  VkFormat format;
 
   VmaAllocation allocation;
 };

@@ -16,8 +16,6 @@ if(WIN32)
   set(ENV{VULKAN_SDK} "C:/VulkanSDK/1.3.290.0")
   find_package(Vulkan REQUIRED)
 
-  # set(SDL3_DIR "${CMAKE_SOURCE_DIR}/extern/SDL3/lib/cmake/SDL3")
-  # find_package(SDL3 REQUIRED)
   add_library(engine STATIC
     ${SOURCE_DIR}/engine.cpp
 
@@ -25,8 +23,11 @@ if(WIN32)
     ${SOURCE_DIR}/vk_images.cpp
     ${SOURCE_DIR}/vk_descriptors.cpp
     ${SOURCE_DIR}/vk_pipelines.cpp
+    ${SOURCE_DIR}/vk_loader.cpp
   )
-
+  target_link_libraries(engine PRIVATE
+    fastgltf
+  )
   target_include_directories(engine PRIVATE
     ${Vulkan_INCLUDE_DIRS}
 
@@ -38,6 +39,7 @@ if(WIN32)
     ${CMAKE_SOURCE_DIR}/extern/vk-bootstrap/src
     ${CMAKE_SOURCE_DIR}/extern/VMA/include
     ${CMAKE_SOURCE_DIR}/extern/fmt/include
+    ${CMAKE_SOURCE_DIR}/extern/fastgltf/include
 
     ${CMAKE_SOURCE_DIR}/include
     ${CMAKE_SOURCE_DIR}/src

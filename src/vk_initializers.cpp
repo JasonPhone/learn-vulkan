@@ -147,7 +147,7 @@ VkRenderingAttachmentInfo vkinit::depthAttachmentInfo(
   depth_attachment.imageLayout = layout;
   depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
   depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-  depth_attachment.clearValue.depthStencil.depth = 0.f;
+  depth_attachment.clearValue.depthStencil.depth = 1.f; // Inverse-z, 0 as far.
 
   return depth_attachment;
 }

@@ -1,6 +1,7 @@
 #pragma once
 #include "vk_types.h"
 #include "vk_descriptors.h"
+#include "vk_loader.h"
 
 /**
  * @brief Manage the deletion.
@@ -93,7 +94,8 @@ private:
 
   VmaAllocator m_allocator;
 
-  AllocatedImage m_draw_image;
+  AllocatedImage m_color_image;
+  AllocatedImage m_depth_image;
   VkExtent2D m_draw_extent;
 
   DescriptorAllocator m_global_ds_allocator;
@@ -109,6 +111,8 @@ private:
   VkPipelineLayout m_simple_mesh_pipeline_layout;
   VkPipeline m_simple_mesh_pipeline;
   GPUMeshBuffers m_simple_mesh;
+
+  std::vector<std::shared_ptr<GeometryMesh>> m_meshes;
 
   VkFence m_imm_fence;
   VkCommandBuffer m_imm_cmd;

@@ -29,4 +29,5 @@ struct PipelineBuilder {
   void setColorAttachFormat(VkFormat format);
   void setDepthFormat(VkFormat format);
   void disableDepthTest();
+  void enableDepthTest(bool enable_depth_write, VkCompareOp comp);
 };

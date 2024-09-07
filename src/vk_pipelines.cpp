@@ -166,3 +166,19 @@ void PipelineBuilder::disableDepthTest() {
   ci_depth_stencil.minDepthBounds = 0.f;
   ci_depth_stencil.maxDepthBounds = 1.f;
 }
+/**
+ *
+ * @param comp If (a comp b) is true, a is near and pass the test.
+ */
+void PipelineBuilder::enableDepthTest(bool enable_depth_write,
+                                      VkCompareOp comp) {
+  ci_depth_stencil.depthTestEnable = VK_TRUE;
+  ci_depth_stencil.depthWriteEnable = enable_depth_write ? VK_TRUE : VK_FALSE;
+  ci_depth_stencil.depthCompareOp = comp;
+  ci_depth_stencil.depthBoundsTestEnable = VK_FALSE;
+  ci_depth_stencil.stencilTestEnable = VK_FALSE;
+  ci_depth_stencil.front = {};
+  ci_depth_stencil.back = {};
+  ci_depth_stencil.minDepthBounds = 0.f;
+  ci_depth_stencil.maxDepthBounds = 1.f;
+}
