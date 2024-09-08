@@ -32,8 +32,7 @@ void Engine::init() {
 
   // We initialize SDL and create a window with it.
   SDL_Init(SDL_INIT_VIDEO);
-  SDL_WindowFlags window_flags =
-  (SDL_WindowFlags)(SDL_WINDOW_VULKAN);
+  SDL_WindowFlags window_flags = (SDL_WindowFlags)(SDL_WINDOW_VULKAN);
   // (SDL_WindowFlags)(SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE);
   window = SDL_CreateWindow("Vulkan Engine", window_extent.width,
                             window_extent.height, window_flags);
@@ -43,7 +42,7 @@ void Engine::init() {
   initCommands();
   initSyncStructures();
 
-  initShaderDescriptors();
+  initDescriptors();
   initPipelines();
 
   initImGui();
@@ -57,14 +56,19 @@ void Engine::cleanup() {
   if (is_initialized) {
     // Order matters, reversed of initialization.
     vkDeviceWaitIdle(m_device); // Wait for GPU to finish.
-    m_main_deletion_queue.flush();
     for (uint32_t i = 0; i < kFrameOverlap; i++) {
       // Cmd buffer is destroyed with pool it comes from.
       vkDestroyCommandPool(m_device, m_frames[i].cmd_pool, nullptr);
       vkDestroyFence(m_device, m_frames[i].render_fence, nullptr);
       vkDestroySemaphore(m_device, m_frames[i].render_semaphore, nullptr);
       vkDestroySemaphore(m_device, m_frames[i].swapchain_semaphore, nullptr);
+      m_frames[i].deletion_queue.flush();
     }
+    /**
+     * @note  Global vma allocator must be deleted last.
+     *        some allocations rely on this.
+     */
+    m_main_deletion_queue.flush();
 
     destroySwapchain();
     vkDestroySurfaceKHR(m_instance, m_surface, nullptr);
@@ -82,6 +86,7 @@ void Engine::draw() {
                            VK_ONE_SEC));
   // Free objects dedicated to this frame (in last iteration).
   getCurrentFrame().deletion_queue.flush();
+  getCurrentFrame().frame_descriptors.clearPools(m_device);
   VK_CHECK(vkResetFences(m_device, 1, &getCurrentFrame().render_fence));
 
   // Request an image to draw to.
@@ -200,6 +205,23 @@ void Engine::drawGeometry(VkCommandBuffer cmd) {
     scissor.extent.width = m_draw_extent.width;
     scissor.extent.height = m_draw_extent.height;
     vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+    AllocatedBuffer gpu_scene_data_buffer =
+        createBuffer(sizeof(GPUSceneData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                     VMA_MEMORY_USAGE_CPU_TO_GPU);
+    getCurrentFrame().deletion_queue.push(
+        [=, this]() { destroyBuffer(gpu_scene_data_buffer); });
+    GPUSceneData *scene_uniform_data =
+        (GPUSceneData *)gpu_scene_data_buffer.allocation->GetMappedData();
+    *scene_uniform_data = m_scene_data;
+    VkDescriptorSet frame_descriptor =
+        getCurrentFrame().frame_descriptors.allocate(
+            m_device, m_GPU_scene_data_ds_layout);
+    DescriptorWriter writer;
+    writer.writeBuffer(0, gpu_scene_data_buffer.buffer, sizeof(GPUSceneData), 0,
+                       VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+    writer.updateDescriptorSet(m_device, frame_descriptor);
+
     GPUDrawPushConstants push_constants;
     push_constants.vertex_buffer_address =
         m_meshes[2]->mesh_buffers.vertex_buffer_address;
@@ -211,6 +233,7 @@ void Engine::drawGeometry(VkCommandBuffer cmd) {
         0.1f, 10000.f);
     projection[1][1] *= -1; // Reverse Y-axis.
     push_constants.world_mat = projection * view;
+
     vkCmdPushConstants(cmd, m_simple_mesh_pipeline_layout,
                        VK_SHADER_STAGE_VERTEX_BIT, 0,
                        sizeof(GPUDrawPushConstants), &push_constants);
@@ -469,12 +492,11 @@ void Engine::destroySwapchain() {
     vkDestroyImageView(m_device, m_swapchain_img_views[i], nullptr);
   }
 }
-void Engine::initShaderDescriptors() {
+void Engine::initDescriptors() {
   std::vector<DescriptorAllocator::PoolSizeRatio> sizes = {
       {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1}};
   // Descriptor pool with 10 des sets, 1 image each.
   m_global_ds_allocator.initPool(m_device, 10, sizes);
-  // Init the layout and get descriptor set.
   {
     DescriptorLayoutBuilder builder;
     builder.addBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
@@ -483,26 +505,36 @@ void Engine::initShaderDescriptors() {
     m_draw_image_ds =
         m_global_ds_allocator.allocate(m_device, m_draw_image_ds_layout);
   }
+  {
+    DescriptorLayoutBuilder builder;
+    builder.addBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+    m_GPU_scene_data_ds_layout = builder.build(
+        m_device, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
+  }
 
-  VkDescriptorImageInfo img_info = {};
-  img_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-  img_info.imageView = m_color_image.view; // Here connect the data stream.
-
-  VkWriteDescriptorSet draw_img_write = {};
-  draw_img_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-  draw_img_write.pNext = nullptr;
-  draw_img_write.dstBinding = 0;
-  draw_img_write.dstSet = m_draw_image_ds;
-  draw_img_write.descriptorCount = 1;
-  draw_img_write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-  draw_img_write.pImageInfo = &img_info;
-
-  vkUpdateDescriptorSets(m_device, 1, &draw_img_write, 0, nullptr);
+  DescriptorWriter writer;
+  writer.writeImage(0, m_color_image.view, VK_NULL_HANDLE,
+                    VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
+  writer.updateDescriptorSet(m_device, m_draw_image_ds);
 
   m_main_deletion_queue.push([&]() {
-    m_global_ds_allocator.destroyPool(m_device);
+    m_global_ds_allocator.destroyPools(m_device);
     vkDestroyDescriptorSetLayout(m_device, m_draw_image_ds_layout, nullptr);
+    vkDestroyDescriptorSetLayout(m_device, m_GPU_scene_data_ds_layout, nullptr);
   });
+
+  for (size_t i = 0; i < kFrameOverlap; i++) {
+    std::vector<DescriptorAllocator::PoolSizeRatio> frame_sizes = {
+        {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 3},
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 3},
+        {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 3},
+        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 4},
+    };
+    m_frames[i].frame_descriptors = {};
+    m_frames[i].frame_descriptors.initPool(m_device, 1000, frame_sizes);
+    m_main_deletion_queue.push(
+        [&, i]() { m_frames[i].frame_descriptors.destroyPools(m_device); });
+  }
 }
 void Engine::initPipelines() {
   // Compute pipelines.

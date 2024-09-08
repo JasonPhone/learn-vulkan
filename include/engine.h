@@ -31,6 +31,16 @@ struct FrameData {
   VkFence render_fence;
 
   DeletionQueue deletion_queue;
+  DescriptorAllocator frame_descriptors;
+};
+
+struct GPUSceneData {
+  glm::mat4 view;
+  glm::mat4 proj;
+  glm::mat4 view_proj;
+  glm::vec4 ambient_color;
+  glm::vec4 sunlight_dir; // w for sun power.
+  glm::vec4 sunlight_color;
 };
 
 struct ComputePushConstants {
@@ -47,7 +57,8 @@ struct ComputePipeline {
   ComputePushConstants data;
 };
 
-constexpr uint32_t kFrameOverlap = 2;
+// FIXME This affects imgui drag lagging.
+constexpr uint32_t kFrameOverlap = 3;
 
 class Engine : public ObjectBase {
 public:
@@ -90,6 +101,8 @@ private:
   float m_render_scale = 1.f;
 
   FrameData m_frames[kFrameOverlap];
+  GPUSceneData m_scene_data;
+  VkDescriptorSetLayout m_GPU_scene_data_ds_layout;
   VkQueue m_graphic_queue;
   uint32_t m_graphic_queue_family;
 
@@ -123,7 +136,7 @@ private:
   void initCommands();
   void initSyncStructures();
 
-  void initShaderDescriptors();
+  void initDescriptors();
   void initPipelines();
   void initBackgroundPipelines();
   void initSimpleMeshPipeline();
