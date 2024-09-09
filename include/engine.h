@@ -110,6 +110,15 @@ private:
 
   VmaAllocator m_allocator;
 
+  // Input images.
+  AllocatedImage m_white_image;
+  AllocatedImage m_black_image;
+  AllocatedImage m_gray_image;
+  AllocatedImage m_error_image;
+  VkSampler m_default_sampler_linear;
+  VkSampler m_default_sampler_nearest;
+  VkDescriptorSetLayout m_single_image_ds_layout;
+  // Output images.
   AllocatedImage m_color_image;
   AllocatedImage m_depth_image;
 
@@ -140,7 +149,7 @@ private:
   void initPipelines();
   void initBackgroundPipelines();
   void initSimpleMeshPipeline();
-  void initDefaultMesh();
+  void initDefaultData();
 
   void initImGui();
   void drawImGui(VkCommandBuffer cmd, VkImageView target_img_view);
@@ -154,4 +163,12 @@ private:
   AllocatedBuffer createBuffer(size_t alloc_size, VkBufferUsageFlags usage,
                                VmaMemoryUsage mem_usage);
   void destroyBuffer(const AllocatedBuffer &buffer);
+
+  /// @brief Create GPU-only image.
+  AllocatedImage createImage(VkExtent3D size, VkFormat format,
+                             VkImageUsageFlags usage, bool mipmap = false);
+  /// @brief Create GPU-only image with data.
+  AllocatedImage createImage(void *data, VkExtent3D size, VkFormat format,
+                             VkImageUsageFlags usage, bool mipmap = false);
+  void destroyImage(const AllocatedImage &image);
 };

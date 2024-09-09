@@ -47,7 +47,7 @@ void Engine::init() {
 
   initImGui();
 
-  initDefaultMesh();
+  initDefaultData();
 
   is_initialized = true;
 }
@@ -196,6 +196,20 @@ void Engine::drawGeometry(VkCommandBuffer cmd) {
   {
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                       m_simple_mesh_pipeline);
+    // Bind texture.
+    VkDescriptorSet image_ds = getCurrentFrame().frame_descriptors.allocate(
+        m_device, m_single_image_ds_layout);
+    {
+      DescriptorWriter writer;
+      writer.writeImage(0, m_error_image.view, m_default_sampler_nearest,
+                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                        VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+      writer.updateDescriptorSet(m_device, image_ds);
+    }
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            m_simple_mesh_pipeline_layout, 0, 1, &image_ds, 0,
+                            nullptr);
+
     VkViewport view_port = {.x = 0, .y = 0, .minDepth = 0.f, .maxDepth = 1.f};
     view_port.width = m_draw_extent.width;
     view_port.height = m_draw_extent.height;
@@ -206,6 +220,7 @@ void Engine::drawGeometry(VkCommandBuffer cmd) {
     scissor.extent.height = m_draw_extent.height;
     vkCmdSetScissor(cmd, 0, 1, &scissor);
 
+    /*
     AllocatedBuffer gpu_scene_data_buffer =
         createBuffer(sizeof(GPUSceneData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
                      VMA_MEMORY_USAGE_CPU_TO_GPU);
@@ -217,10 +232,14 @@ void Engine::drawGeometry(VkCommandBuffer cmd) {
     VkDescriptorSet frame_descriptor =
         getCurrentFrame().frame_descriptors.allocate(
             m_device, m_GPU_scene_data_ds_layout);
-    DescriptorWriter writer;
-    writer.writeBuffer(0, gpu_scene_data_buffer.buffer, sizeof(GPUSceneData), 0,
-                       VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
-    writer.updateDescriptorSet(m_device, frame_descriptor);
+    {
+
+      DescriptorWriter writer;
+      writer.writeBuffer(0, gpu_scene_data_buffer.buffer, sizeof(GPUSceneData),
+                         0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+      writer.updateDescriptorSet(m_device, frame_descriptor);
+    }
+    */
 
     GPUDrawPushConstants push_constants;
     push_constants.vertex_buffer_address =
@@ -364,55 +383,28 @@ void Engine::initSwapchain() {
 
   // Custom draw image.
   VkExtent3D color_img_ext = {window_extent.width, window_extent.height, 1};
-  m_color_image.format = VK_FORMAT_R16G16B16A16_SFLOAT;
-  m_color_image.extent = color_img_ext;
-  VkImageUsageFlags color_img_usage_flags = {};
+  VkImageUsageFlags color_img_usage = {};
   // Copy from and into.
-  color_img_usage_flags |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
-  color_img_usage_flags |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+  color_img_usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+  color_img_usage |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
   // Enable compute shader writing.
-  color_img_usage_flags |= VK_IMAGE_USAGE_STORAGE_BIT;
+  color_img_usage |= VK_IMAGE_USAGE_STORAGE_BIT;
   // Graphics pipelines draw.
-  color_img_usage_flags |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-  VkImageCreateInfo ci_color_img = vkinit::imageCreateInfo(
-      m_color_image.format, color_img_usage_flags, m_color_image.extent);
-  VmaAllocationCreateInfo ci_color_img_alloc = {};
-  ci_color_img_alloc.usage = VMA_MEMORY_USAGE_GPU_ONLY;
-  // Double check the allocation is in VRAM.
-  ci_color_img_alloc.requiredFlags =
-      VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-  vmaCreateImage(m_allocator, &ci_color_img, &ci_color_img_alloc,
-                 &m_color_image.image, &m_color_image.allocation, nullptr);
-  VkImageViewCreateInfo ci_color_img_view = vkinit::imageViewCreateInfo(
-      m_color_image.format, m_color_image.image, VK_IMAGE_ASPECT_COLOR_BIT);
-  VK_CHECK(vkCreateImageView(m_device, &ci_color_img_view, nullptr,
-                             &m_color_image.view));
+  color_img_usage |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+  m_color_image = createImage(color_img_ext, VK_FORMAT_R16G16B16A16_SFLOAT,
+                              color_img_usage);
 
   VkExtent3D depth_img_ext = {window_extent.width, window_extent.height, 1};
   m_depth_image.format = VK_FORMAT_D32_SFLOAT;
   m_depth_image.extent = depth_img_ext;
-  VkImageUsageFlags draw_depth_usage_flags = {};
-  draw_depth_usage_flags |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
-  VkImageCreateInfo ci_depth_image = vkinit::imageCreateInfo(
-      m_depth_image.format, draw_depth_usage_flags, m_depth_image.extent);
-  VmaAllocationCreateInfo ci_depth_img_alloc = {};
-  ci_depth_img_alloc.usage = VMA_MEMORY_USAGE_GPU_ONLY;
-  // Double check the allocation is in VRAM.
-  ci_depth_img_alloc.requiredFlags =
-      VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-  vmaCreateImage(m_allocator, &ci_depth_image, &ci_depth_img_alloc,
-                 &m_depth_image.image, &m_depth_image.allocation, nullptr);
-  VkImageViewCreateInfo ci_depth_view = vkinit::imageViewCreateInfo(
-      m_depth_image.format, m_depth_image.image, VK_IMAGE_ASPECT_DEPTH_BIT);
-  VK_CHECK(vkCreateImageView(m_device, &ci_depth_view, nullptr,
-                             &m_depth_image.view));
+  VkImageUsageFlags depth_img_usage = {};
+  depth_img_usage |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+  m_depth_image =
+      createImage(depth_img_ext, VK_FORMAT_D32_SFLOAT, depth_img_usage);
 
   m_main_deletion_queue.push([&]() {
-    vkDestroyImageView(m_device, m_color_image.view, nullptr);
-    vmaDestroyImage(m_allocator, m_color_image.image, m_color_image.allocation);
-
-    vkDestroyImageView(m_device, m_depth_image.view, nullptr);
-    vmaDestroyImage(m_allocator, m_depth_image.image, m_depth_image.allocation);
+    destroyImage(m_color_image);
+    destroyImage(m_depth_image);
   });
 }
 void Engine::initCommands() {
@@ -511,6 +503,13 @@ void Engine::initDescriptors() {
     m_GPU_scene_data_ds_layout = builder.build(
         m_device, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
   }
+  {
+    DescriptorLayoutBuilder builder;
+    // Combined ds for coupled image and sampler.
+    builder.addBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+    m_single_image_ds_layout =
+        builder.build(m_device, VK_SHADER_STAGE_FRAGMENT_BIT);
+  }
 
   DescriptorWriter writer;
   writer.writeImage(0, m_color_image.view, VK_NULL_HANDLE,
@@ -521,6 +520,7 @@ void Engine::initDescriptors() {
     m_global_ds_allocator.destroyPools(m_device);
     vkDestroyDescriptorSetLayout(m_device, m_draw_image_ds_layout, nullptr);
     vkDestroyDescriptorSetLayout(m_device, m_GPU_scene_data_ds_layout, nullptr);
+    vkDestroyDescriptorSetLayout(m_device, m_single_image_ds_layout, nullptr);
   });
 
   for (size_t i = 0; i < kFrameOverlap; i++) {
@@ -652,7 +652,7 @@ void Engine::initSimpleMeshPipeline() {
                                 m_device, &mesh_shader_vert)) {
     fmt::println("Error loading vert shader.");
   }
-  if (!vkutil::loadShaderModule("../../assets/shaders/simple_mesh.frag.spv",
+  if (!vkutil::loadShaderModule("../../assets/shaders/texture_image.frag.spv",
                                 m_device, &mesh_shader_frag)) {
     fmt::println("Error loading frag shader.");
   }
@@ -664,6 +664,8 @@ void Engine::initSimpleMeshPipeline() {
       vkinit::pipelineLayoutCreateInfo();
   ci_pipeline_layout.pPushConstantRanges = &buffer_range;
   ci_pipeline_layout.pushConstantRangeCount = 1;
+  ci_pipeline_layout.pSetLayouts = &m_single_image_ds_layout;
+  ci_pipeline_layout.setLayoutCount = 1;
   VK_CHECK(vkCreatePipelineLayout(m_device, &ci_pipeline_layout, nullptr,
                                   &m_simple_mesh_pipeline_layout));
   PipelineBuilder builder;
@@ -674,7 +676,7 @@ void Engine::initSimpleMeshPipeline() {
   builder.setCullMode(VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE);
   builder.setMultisamplingNone();
   // builder.disableBlending();
-  builder.enableBlendingAdd();
+  builder.enableBlendingAlpha();
   builder.enableDepthTest(true, VK_COMPARE_OP_LESS_OR_EQUAL);
   builder.setColorAttachFormat(m_color_image.format);
   builder.setDepthFormat(m_depth_image.format);
@@ -849,7 +851,7 @@ GPUMeshBuffers Engine::uploadMesh(std::span<uint32_t> indices,
   return mesh;
 }
 
-void Engine::initDefaultMesh() {
+void Engine::initDefaultData() {
   std::array<Vertex, 4> rect_vertices;
   rect_vertices[0].position = {0.5, -0.5, 0};
   rect_vertices[1].position = {0.5, 0.5, 0};
@@ -881,6 +883,47 @@ void Engine::initDefaultMesh() {
       destroyBuffer(mesh->mesh_buffers.index_buffer);
     });
   }
+
+  uint32_t white = glm::packUnorm4x8(glm::vec4(1, 1, 1, 1));
+  m_white_image =
+      createImage((void *)&white, VkExtent3D{1, 1, 1}, VK_FORMAT_R8G8B8A8_UNORM,
+                  VK_IMAGE_USAGE_SAMPLED_BIT);
+  uint32_t black = glm::packUnorm4x8(glm::vec4(0, 0, 0, 1));
+  m_black_image =
+      createImage((void *)&black, VkExtent3D{1, 1, 1}, VK_FORMAT_R8G8B8A8_UNORM,
+                  VK_IMAGE_USAGE_SAMPLED_BIT);
+  uint32_t gray = glm::packUnorm4x8(glm::vec4(0.66f, 0.66f, 0.66f, 1));
+  m_gray_image =
+      createImage((void *)&gray, VkExtent3D{1, 1, 1}, VK_FORMAT_R8G8B8A8_UNORM,
+                  VK_IMAGE_USAGE_SAMPLED_BIT);
+  uint32_t magenta = glm::packUnorm4x8(glm::vec4(1, 0, 1, 1));
+  std::array<uint32_t, 16 * 16> pixels; // 16x16 checkerboard texture.
+  for (int x = 0; x < 16; x++)
+    for (int y = 0; y < 16; y++)
+      pixels[y * 16 + x] = ((x % 2) ^ (y % 2)) ? magenta : black;
+  m_error_image =
+      createImage(pixels.data(), VkExtent3D{16, 16, 1},
+                  VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT);
+
+  VkSamplerCreateInfo ci_sampler = {
+      .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+  };
+  ci_sampler.magFilter = VK_FILTER_LINEAR;
+  ci_sampler.minFilter = VK_FILTER_LINEAR;
+  vkCreateSampler(m_device, &ci_sampler, nullptr, &m_default_sampler_linear);
+  ci_sampler.magFilter = VK_FILTER_NEAREST;
+  ci_sampler.minFilter = VK_FILTER_NEAREST;
+  vkCreateSampler(m_device, &ci_sampler, nullptr, &m_default_sampler_nearest);
+
+  m_main_deletion_queue.push([&]() {
+    vkDestroySampler(m_device, m_default_sampler_linear, nullptr);
+    vkDestroySampler(m_device, m_default_sampler_nearest, nullptr);
+
+    destroyImage(m_white_image);
+    destroyImage(m_black_image);
+    destroyImage(m_gray_image);
+    destroyImage(m_error_image);
+  });
 }
 void Engine::resizeSwapchain() {
   vkDeviceWaitIdle(m_device);
@@ -889,4 +932,70 @@ void Engine::resizeSwapchain() {
   SDL_GetWindowSize(window, &w, &h);
   createSwapchain(w, h);
   require_resize = false;
+}
+AllocatedImage Engine::createImage(VkExtent3D size, VkFormat format,
+                                   VkImageUsageFlags usage, bool mipmap) {
+  AllocatedImage image;
+  image.format = format;
+  image.extent = size;
+  VkImageCreateInfo ci_image = vkinit::imageCreateInfo(format, usage, size);
+  if (mipmap)
+    ci_image.mipLevels = static_cast<uint32_t>(std::floor(
+                             std::log2(std::max(size.width, size.height)))) +
+                         1;
+
+  VmaAllocationCreateInfo ci_alloc = {};
+  ci_alloc.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+  ci_alloc.requiredFlags =
+      // Double check the allocation is in VRAM.
+      VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+  VK_CHECK(vmaCreateImage(m_allocator, &ci_image, &ci_alloc, &image.image,
+                          &image.allocation, nullptr));
+  VkImageAspectFlags aspect_flags = format == VK_FORMAT_D32_SFLOAT
+                                        ? VK_IMAGE_ASPECT_DEPTH_BIT
+                                        : VK_IMAGE_ASPECT_COLOR_BIT;
+  VkImageViewCreateInfo ci_view =
+      vkinit::imageViewCreateInfo(format, image.image, aspect_flags);
+  ci_view.subresourceRange.levelCount = ci_image.mipLevels;
+  VK_CHECK(vkCreateImageView(m_device, &ci_view, nullptr, &image.view));
+  return image;
+}
+AllocatedImage Engine::createImage(void *data, VkExtent3D size, VkFormat format,
+                                   VkImageUsageFlags usage, bool mipmap) {
+  // Assume R8G8B8A8 format.
+  size_t data_size = size.depth * size.width * size.height * 4;
+  AllocatedBuffer upload = createBuffer(
+      data_size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
+  memcpy(upload.alloc_info.pMappedData, data, data_size);
+
+  AllocatedImage new_image = createImage(
+      size, format,
+      usage | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+      mipmap);
+
+  immediateSubmit([&](VkCommandBuffer cmd) {
+    vkutil::transitionImage(cmd, new_image.image, VK_IMAGE_LAYOUT_UNDEFINED,
+                            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    VkBufferImageCopy copy_region = {};
+    copy_region.bufferOffset = 0;
+    copy_region.bufferRowLength = 0;
+    copy_region.bufferImageHeight = 0;
+    copy_region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    copy_region.imageSubresource.mipLevel = 0;
+    copy_region.imageSubresource.baseArrayLayer = 0;
+    copy_region.imageSubresource.layerCount = 1;
+    copy_region.imageExtent = size;
+    vkCmdCopyBufferToImage(cmd, upload.buffer, new_image.image,
+                           VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
+                           &copy_region);
+    vkutil::transitionImage(cmd, new_image.image,
+                            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+  });
+  destroyBuffer(upload);
+  return new_image;
+}
+void Engine::destroyImage(const AllocatedImage &image) {
+  vkDestroyImageView(m_device, image.view, nullptr);
+  vmaDestroyImage(m_allocator, image.image, image.allocation);
 }
