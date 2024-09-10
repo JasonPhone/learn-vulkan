@@ -3,6 +3,7 @@
 #include "vk_descriptors.h"
 #include "vk_loader.h"
 #include "renderable.h"
+#include "camera.h"
 
 /**
  * @brief Manage the deletion.
@@ -173,6 +174,7 @@ private:
   DrawContext m_main_draw_context;
   std::unordered_map<std::string, std::shared_ptr<Node>> m_loaded_nodes;
   void updateScene();
+  Camera m_main_camera;
 
   VkFence m_imm_fence;
   VkCommandBuffer m_imm_cmd;

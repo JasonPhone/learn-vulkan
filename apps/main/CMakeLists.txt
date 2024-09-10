@@ -24,6 +24,7 @@ if(WIN32)
     ${SOURCE_DIR}/vk_descriptors.cpp
     ${SOURCE_DIR}/vk_pipelines.cpp
     ${SOURCE_DIR}/vk_loader.cpp
+    ${SOURCE_DIR}/camera.cpp
   )
   target_link_libraries(engine PRIVATE
     fastgltf

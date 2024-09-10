@@ -48,6 +48,7 @@ void Engine::init() {
   initImGui();
 
   initDefaultData();
+  m_main_camera.init();
 
   is_initialized = true;
 }
@@ -77,6 +78,8 @@ void Engine::cleanup() {
     vkb::destroy_debug_utils_messenger(m_instance, m_debug_msngr);
     vkDestroyInstance(m_instance, nullptr);
 
+    ImGui_ImplSDL3_Shutdown();
+    ImGui::DestroyContext();
     SDL_DestroyWindow(window);
   }
   loaded_engine = nullptr;
@@ -273,13 +276,12 @@ void Engine::run() {
       if (e.type == SDL_EVENT_QUIT)
         b_quit = true;
       if (e.type >= SDL_EVENT_WINDOW_FIRST && e.type <= SDL_EVENT_WINDOW_LAST) {
-        if (e.window.type == SDL_EVENT_WINDOW_MINIMIZED) {
+        if (e.window.type == SDL_EVENT_WINDOW_MINIMIZED)
           stop_rendering = true;
-        }
-        if (e.window.type == SDL_EVENT_WINDOW_RESTORED) {
+        if (e.window.type == SDL_EVENT_WINDOW_RESTORED)
           stop_rendering = false;
-        }
       }
+      m_main_camera.processSDLEvent(e);
       ImGui_ImplSDL3_ProcessEvent(&e);
     }
     if (require_resize)
@@ -296,6 +298,7 @@ void Engine::run() {
     // UI layout.
     {
       if (ImGui::Begin("background")) {
+        ImGui::Text("Press C to toggle camera roaming.");
         ImGui::SliderFloat("Render Scale", &m_render_scale, 0.3f, 1.f);
         auto &selected_pipeline = m_compute_pipelines[m_cur_comp_pipeline_idx];
         ImGui::Text("Selected Compute Pipeline: %s", selected_pipeline.name);
@@ -1029,14 +1032,16 @@ void Engine::destroyImage(const AllocatedImage &image) {
   vmaDestroyImage(m_allocator, image.image, image.allocation);
 }
 void Engine::updateScene() {
+  m_main_camera.update();
   m_main_draw_context.opaque_surfaces.clear();
+
   m_loaded_nodes["Suzanne"]->draw(glm::mat4{1.f}, m_main_draw_context);
   for (int x = -3; x < 3; x++) {
     glm::mat4 scale = glm::scale(glm::vec3{0.2});
     glm::mat4 translation = glm::translate(glm::vec3{x + 0.5, 1, 0});
     m_loaded_nodes["Cube"]->draw(translation * scale, m_main_draw_context);
   }
-  m_scene_data.view = glm::translate(glm::vec3{0, 0, -5});
+  m_scene_data.view = m_main_camera.getViewMatrix();
   m_scene_data.proj = glm::perspective(
       glm::radians(70.f), 1.f * window_extent.width / window_extent.height,
       0.1f, 10000.f);
