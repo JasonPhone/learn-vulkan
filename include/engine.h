@@ -2,6 +2,7 @@
 #include "vk_types.h"
 #include "vk_descriptors.h"
 #include "vk_loader.h"
+#include "renderable.h"
 
 /**
  * @brief Manage the deletion.
@@ -57,6 +58,36 @@ struct ComputePipeline {
   ComputePushConstants data;
 };
 
+struct GLTFMetallicRoughness {
+  MaterialPipeline pipeline_opaque;
+  MaterialPipeline pipeline_transparent;
+
+  struct MaterialConstants {
+    glm::vec4 color_factors;
+    glm::vec4 metal_rough_factors;
+    // 256 bytes padding.
+    glm::vec4 padding[14];
+  };
+
+  struct MaterialResources {
+    AllocatedImage color_image;
+    VkSampler color_sampler;
+    AllocatedImage metal_rough_image;
+    VkSampler metal_rough_sampler;
+    VkBuffer data_buffer;
+    uint32_t data_buffer_offset;
+  };
+
+  VkDescriptorSetLayout ds_layout;
+  DescriptorWriter writer;
+
+  void buildPipelines(Engine *engine);
+  void clearResources(VkDevice device);
+  MaterialInstance writeMaterial(VkDevice device, MaterialPass pass,
+                                 const MaterialResources &resources,
+                                 DescriptorAllocator &d_allocator);
+};
+
 // FIXME This affects imgui drag lagging.
 constexpr uint32_t kFrameOverlap = 3;
 
@@ -86,6 +117,8 @@ public:
   }
 
 private:
+  // TODO Better visibility.
+  friend struct GLTFMetallicRoughness;
   VkInstance m_instance;                  // Vulkan library handle
   VkDebugUtilsMessengerEXT m_debug_msngr; // Vulkan debug output handle
   VkPhysicalDevice m_chosen_GPU;          // GPU chosen as the default device
@@ -122,6 +155,9 @@ private:
   AllocatedImage m_color_image;
   AllocatedImage m_depth_image;
 
+  MaterialInstance m_default_mat;
+  GLTFMetallicRoughness m_metal_rough_mat;
+
   DescriptorAllocator m_global_ds_allocator;
   VkDescriptorSet m_draw_image_ds;
   VkDescriptorSetLayout m_draw_image_ds_layout;
@@ -133,7 +169,10 @@ private:
   VkPipeline m_simple_mesh_pipeline;
   GPUMeshBuffers m_simple_mesh;
 
-  std::vector<std::shared_ptr<GeometryMesh>> m_meshes;
+  std::vector<std::shared_ptr<MeshAsset>> m_meshes;
+  DrawContext m_main_draw_context;
+  std::unordered_map<std::string, std::shared_ptr<Node>> m_loaded_nodes;
+  void updateScene();
 
   VkFence m_imm_fence;
   VkCommandBuffer m_imm_cmd;

@@ -46,6 +46,7 @@
 
 #define VK_ONE_SEC 1000000000
 
+
 /**
  * @brief Base class.
  */
@@ -88,4 +89,15 @@ struct GPUMeshBuffers {
 struct GPUDrawPushConstants {
   glm::mat4 world_mat;
   VkDeviceAddress vertex_buffer_address;
+};
+
+struct MaterialPipeline {
+  VkPipeline pipeline;
+  VkPipelineLayout layout;
+};
+enum class MaterialPass : uint8_t { BasicMainColor, BasicTransparent, Others };
+struct MaterialInstance {
+  MaterialPipeline *p_pipeline;
+  VkDescriptorSet ds;
+  MaterialPass pass_type;
 };

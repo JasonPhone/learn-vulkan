@@ -3,12 +3,16 @@
 #include <unordered_map>
 #include <filesystem>
 
+struct GLTFMaterial {
+  MaterialInstance data;
+};
 struct GeometrySurface {
   uint32_t start_index;
   uint32_t count;
+  std::shared_ptr<GLTFMaterial> material;
 };
 
-struct GeometryMesh {
+struct MeshAsset {
   std::string name;
   std::vector<GeometrySurface> surfaces;
   GPUMeshBuffers mesh_buffers;
@@ -16,5 +20,5 @@ struct GeometryMesh {
 
 class Engine;
 
-std::optional<std::vector<std::shared_ptr<GeometryMesh>>>
+std::optional<std::vector<std::shared_ptr<MeshAsset>>>
 loadGltfMeshes(Engine *engine, std::filesystem::path file_path);

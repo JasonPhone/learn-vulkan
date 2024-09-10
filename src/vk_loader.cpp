@@ -12,7 +12,7 @@
 #include <fastgltf/glm_element_traits.hpp>
 #include <fastgltf/tools.hpp>
 
-std::optional<std::vector<std::shared_ptr<GeometryMesh>>>
+std::optional<std::vector<std::shared_ptr<MeshAsset>>>
 loadGltfMeshes(Engine *engine, std::filesystem::path file_path) {
   fmt::println("Loading GLTF {}", file_path.string());
 
@@ -37,11 +37,11 @@ loadGltfMeshes(Engine *engine, std::filesystem::path file_path) {
     return {};
   }
 
-  std::vector<std::shared_ptr<GeometryMesh>> meshes;
+  std::vector<std::shared_ptr<MeshAsset>> meshes;
   std::vector<uint32_t> indices;
   std::vector<Vertex> vertices;
   for (fastgltf::Mesh &mesh : gltf.meshes) {
-    GeometryMesh new_mesh;
+    MeshAsset new_mesh;
 
     new_mesh.name = mesh.name;
 
@@ -123,7 +123,7 @@ loadGltfMeshes(Engine *engine, std::filesystem::path file_path) {
     }
 
     // display the vertex normals
-    constexpr bool OverrideColors = true;
+    constexpr bool OverrideColors = false;
     if (OverrideColors) {
       for (Vertex &vtx : vertices) {
         vtx.color = glm::vec4(vtx.normal, 1.f);
@@ -131,7 +131,7 @@ loadGltfMeshes(Engine *engine, std::filesystem::path file_path) {
     }
     new_mesh.mesh_buffers = engine->uploadMesh(indices, vertices);
 
-    meshes.emplace_back(std::make_shared<GeometryMesh>(std::move(new_mesh)));
+    meshes.emplace_back(std::make_shared<MeshAsset>(std::move(new_mesh)));
   }
   fmt::println("{} meshes loaded", meshes.size());
   return meshes;

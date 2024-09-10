@@ -17,6 +17,8 @@ ImGui still needs dynamic rendering now?
 
 How we pass data to and from shader?
 
+Scene structure, material model and shading model are all to be explored.
+
 # Notes
 
 DescriptorPool for ImGui may *change*, the destroy callback should use value capture.
