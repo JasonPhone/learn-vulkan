@@ -4,17 +4,11 @@
 #include <glm/gtx/quaternion.hpp>
 
 void Camera::update() {
-  if (!enabled)
-    return;
   glm::mat4 camera_rotation = getRotationMatrix();
   position += glm::vec3(camera_rotation * glm::vec4(velocity * 0.05f, 0.f));
 }
 
 void Camera::processSDLEvent(SDL_Event &e) {
-  if (e.type == SDL_EVENT_KEY_UP && e.key.key == SDLK_C)
-    enabled = !enabled;
-  if (!enabled)
-    return;
   if (e.type == SDL_EVENT_KEY_DOWN) {
     switch (e.key.key) {
     case SDLK_W:
@@ -28,6 +22,12 @@ void Camera::processSDLEvent(SDL_Event &e) {
       break;
     case SDLK_D:
       velocity.x = 1;
+      break;
+    case SDLK_Q:
+      velocity.y = 1;
+      break;
+    case SDLK_E:
+      velocity.y = -1;
       break;
     }
   }
@@ -45,10 +45,19 @@ void Camera::processSDLEvent(SDL_Event &e) {
     case SDLK_D:
       velocity.x = 0;
       break;
+    case SDLK_Q:
+      velocity.y = 0;
+      break;
+    case SDLK_E:
+      velocity.y = 0;
+      break;
     }
   }
-
-  if (e.type == SDL_EVENT_MOUSE_MOTION) {
+  if (e.type == SDL_EVENT_MOUSE_BUTTON_DOWN)
+    enabled = true;
+  if (e.type == SDL_EVENT_MOUSE_BUTTON_UP)
+    enabled = false;
+  if (enabled && e.type == SDL_EVENT_MOUSE_MOTION) {
     yaw += (float)e.motion.xrel / 300.f;
     pitch -= (float)e.motion.yrel / 300.f;
   }
