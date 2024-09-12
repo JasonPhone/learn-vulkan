@@ -46,7 +46,7 @@
 
 #define VK_ONE_SEC 1000000000
 
-
+class Engine;
 /**
  * @brief Base class.
  */
@@ -100,4 +100,19 @@ struct MaterialInstance {
   MaterialPipeline *p_pipeline;
   VkDescriptorSet ds;
   MaterialPass pass_type;
+};
+
+struct GLTFMaterial {
+  MaterialInstance data;
+};
+struct GeometrySurface {
+  uint32_t start_index;
+  uint32_t count;
+  std::shared_ptr<GLTFMaterial> material;
+};
+
+struct MeshAsset {
+  std::string name;
+  std::vector<GeometrySurface> surfaces;
+  GPUMeshBuffers mesh_buffers;
 };

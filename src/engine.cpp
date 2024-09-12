@@ -57,6 +57,7 @@ void Engine::cleanup() {
   if (is_initialized) {
     // Order matters, reversed of initialization.
     vkDeviceWaitIdle(m_device); // Wait for GPU to finish.
+    m_loaded_scenes.clear();
     for (uint32_t i = 0; i < kFrameOverlap; i++) {
       // Cmd buffer is destroyed with pool it comes from.
       vkDestroyCommandPool(m_device, m_frames[i].cmd_pool, nullptr);
@@ -191,6 +192,24 @@ void Engine::drawBackground(VkCommandBuffer cmd) {
                 std::ceil(m_draw_extent.height / 16.f), 1);
 }
 void Engine::drawGeometry(VkCommandBuffer cmd) {
+  auto drawObjet = [&](const RenderObject &draw, VkDescriptorSet &frame_ds) {
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                      draw.material->p_pipeline->pipeline);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            draw.material->p_pipeline->layout, 0, 1, &frame_ds,
+                            0, nullptr);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            draw.material->p_pipeline->layout, 1, 1,
+                            &draw.material->ds, 0, nullptr);
+    vkCmdBindIndexBuffer(cmd, draw.index_buffer, 0, VK_INDEX_TYPE_UINT32);
+    GPUDrawPushConstants push_const;
+    push_const.vertex_buffer_address = draw.vertex_buffer_address;
+    push_const.world_mat = draw.transform;
+    vkCmdPushConstants(cmd, draw.material->p_pipeline->layout,
+                       VK_SHADER_STAGE_VERTEX_BIT, 0,
+                       sizeof(GPUDrawPushConstants), &push_const);
+    vkCmdDrawIndexed(cmd, draw.n_index, 1, draw.first_index, 0, 0);
+  };
   VkRenderingAttachmentInfo color_attach = vkinit::attachmentInfo(
       m_color_image.view, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
   VkRenderingAttachmentInfo depth_attach = vkinit::depthAttachmentInfo(
@@ -223,15 +242,14 @@ void Engine::drawGeometry(VkCommandBuffer cmd) {
     GPUSceneData *scene_uniform_data =
         (GPUSceneData *)gpu_scene_data_buffer.allocation->GetMappedData();
     *scene_uniform_data = m_scene_data;
-    VkDescriptorSet frame_descriptor =
-        getCurrentFrame().frame_descriptors.allocate(
-            m_device, m_GPU_scene_data_ds_layout);
+    VkDescriptorSet frame_ds = getCurrentFrame().frame_descriptors.allocate(
+        m_device, m_GPU_scene_data_ds_layout);
     {
 
       DescriptorWriter writer;
       writer.writeBuffer(0, gpu_scene_data_buffer.buffer, sizeof(GPUSceneData),
                          0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
-      writer.updateDescriptorSet(m_device, frame_descriptor);
+      writer.updateDescriptorSet(m_device, frame_ds);
     }
 
     VkViewport view_port = {.x = 0, .y = 0, .minDepth = 0.f, .maxDepth = 1.f};
@@ -243,28 +261,14 @@ void Engine::drawGeometry(VkCommandBuffer cmd) {
     scissor.extent.width = m_draw_extent.width;
     scissor.extent.height = m_draw_extent.height;
     vkCmdSetScissor(cmd, 0, 1, &scissor);
-
-    for (const auto &draw : m_main_draw_context.opaque_surfaces) {
-      vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                        draw.material->p_pipeline->pipeline);
-      vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                              draw.material->p_pipeline->layout, 0, 1,
-                              &frame_descriptor, 0, nullptr);
-      vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                              draw.material->p_pipeline->layout, 1, 1,
-                              &draw.material->ds, 0, nullptr);
-      vkCmdBindIndexBuffer(cmd, draw.index_buffer, 0, VK_INDEX_TYPE_UINT32);
-      GPUDrawPushConstants push_const;
-      push_const.vertex_buffer_address = draw.vertex_buffer_address;
-      push_const.world_mat = draw.transform;
-      vkCmdPushConstants(cmd, draw.material->p_pipeline->layout,
-                         VK_SHADER_STAGE_VERTEX_BIT, 0,
-                         sizeof(GPUDrawPushConstants), &push_const);
-      vkCmdDrawIndexed(cmd, draw.n_index, 1, draw.first_index, 0, 0);
-    }
+    for (auto &r : m_main_draw_context.opaque_surfaces)
+      drawObjet(r, frame_ds);
+    for (auto &r : m_main_draw_context.transparent_surfaces)
+      drawObjet(r, frame_ds);
   }
-
   vkCmdEndRendering(cmd);
+  m_main_draw_context.opaque_surfaces.clear();
+  m_main_draw_context.transparent_surfaces.clear();
 }
 void Engine::run() {
   SDL_Event e;
@@ -281,8 +285,10 @@ void Engine::run() {
         if (e.window.type == SDL_EVENT_WINDOW_RESTORED)
           stop_rendering = false;
       }
-      m_main_camera.processSDLEvent(e);
       ImGui_ImplSDL3_ProcessEvent(&e);
+      auto &io = ImGui::GetIO();
+      if (io.WantCaptureMouse == false) // Imgui intercepting mouse.
+        m_main_camera.processSDLEvent(e);
     }
     if (require_resize)
       resizeSwapchain();
@@ -956,6 +962,11 @@ void Engine::initDefaultData() {
       s.material = std::make_shared<GLTFMaterial>(m_default_mat);
     m_loaded_nodes[m->name] = std::move(node);
   }
+
+  std::string structurePath = {"../../assets/models/structure.glb"};
+  auto structureFile = loadGltf(this, structurePath);
+  assert(structureFile.has_value());
+  m_loaded_scenes["structure"] = *structureFile;
 }
 void Engine::resizeSwapchain() {
   vkDeviceWaitIdle(m_device);
@@ -1034,6 +1045,7 @@ void Engine::destroyImage(const AllocatedImage &image) {
 void Engine::updateScene() {
   m_main_camera.update();
   m_main_draw_context.opaque_surfaces.clear();
+  m_main_draw_context.transparent_surfaces.clear();
 
   m_loaded_nodes["Suzanne"]->draw(glm::mat4{1.f}, m_main_draw_context);
   for (int x = -3; x < 3; x++) {
@@ -1041,6 +1053,8 @@ void Engine::updateScene() {
     glm::mat4 translation = glm::translate(glm::vec3{x + 0.5, 1, 0});
     m_loaded_nodes["Cube"]->draw(translation * scale, m_main_draw_context);
   }
+  m_loaded_scenes["structure"]->draw(glm::mat4{1.f}, m_main_draw_context);
+
   m_scene_data.view = m_main_camera.getViewMatrix();
   m_scene_data.proj = glm::perspective(
       glm::radians(70.f), 1.f * window_extent.width / window_extent.height,

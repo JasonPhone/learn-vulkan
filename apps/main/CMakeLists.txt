@@ -24,6 +24,7 @@ if(WIN32)
     ${SOURCE_DIR}/vk_descriptors.cpp
     ${SOURCE_DIR}/vk_pipelines.cpp
     ${SOURCE_DIR}/vk_loader.cpp
+    ${SOURCE_DIR}/renderable.cpp
     ${SOURCE_DIR}/camera.cpp
   )
   target_link_libraries(engine PRIVATE
@@ -72,6 +73,7 @@ if(WIN32)
     tinyobjloader
     imgui
     vk-bootstrap::vk-bootstrap
+    stb
     # vma # Impl in ./src/engine.cpp
     fmt::fmt
 

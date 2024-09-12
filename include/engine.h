@@ -116,10 +116,20 @@ public:
   FrameData &getCurrentFrame() {
     return m_frames[frame_number % kFrameOverlap];
   }
+  /// @brief Create GPU-only image.
+  AllocatedImage createImage(VkExtent3D size, VkFormat format,
+                             VkImageUsageFlags usage, bool mipmap = false);
+  /// @brief Create GPU-only image with data.
+  AllocatedImage createImage(void *data, VkExtent3D size, VkFormat format,
+                             VkImageUsageFlags usage, bool mipmap = false);
+  void destroyImage(const AllocatedImage &image);
 
 private:
   // TODO Better visibility.
   friend struct GLTFMetallicRoughness;
+  friend struct LoadedGLTF;
+  friend std::optional<std::shared_ptr<LoadedGLTF>>
+  loadGltf(Engine *engine, std::filesystem::path file_path);
   VkInstance m_instance;                  // Vulkan library handle
   VkDebugUtilsMessengerEXT m_debug_msngr; // Vulkan debug output handle
   VkPhysicalDevice m_chosen_GPU;          // GPU chosen as the default device
@@ -171,6 +181,7 @@ private:
   GPUMeshBuffers m_simple_mesh;
 
   std::vector<std::shared_ptr<MeshAsset>> m_meshes;
+  std::unordered_map<std::string, std::shared_ptr<LoadedGLTF>> m_loaded_scenes;
   DrawContext m_main_draw_context;
   std::unordered_map<std::string, std::shared_ptr<Node>> m_loaded_nodes;
   void updateScene();
@@ -204,12 +215,4 @@ private:
   AllocatedBuffer createBuffer(size_t alloc_size, VkBufferUsageFlags usage,
                                VmaMemoryUsage mem_usage);
   void destroyBuffer(const AllocatedBuffer &buffer);
-
-  /// @brief Create GPU-only image.
-  AllocatedImage createImage(VkExtent3D size, VkFormat format,
-                             VkImageUsageFlags usage, bool mipmap = false);
-  /// @brief Create GPU-only image with data.
-  AllocatedImage createImage(void *data, VkExtent3D size, VkFormat format,
-                             VkImageUsageFlags usage, bool mipmap = false);
-  void destroyImage(const AllocatedImage &image);
 };
