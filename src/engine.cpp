@@ -87,7 +87,10 @@ void Engine::cleanup() {
 }
 
 void Engine::draw() {
+  stats.scene_update_time.begin();
   updateScene();
+  stats.scene_update_time.end();
+  stats.cpu_time.begin();
   VK_CHECK(vkWaitForFences(m_device, 1, &getCurrentFrame().render_fence, true,
                            VK_ONE_SEC));
   // Free objects dedicated to this frame (in last iteration).
@@ -103,6 +106,7 @@ void Engine::draw() {
                                      nullptr, &swapchain_img_idx);
   if (e == VK_ERROR_OUT_OF_DATE_KHR) {
     require_resize = true;
+    stats.cpu_time.end();
     return;
   }
 
@@ -119,17 +123,31 @@ void Engine::draw() {
   m_draw_extent.height =
       std::min(m_color_image.extent.height, m_swapchain_extent.height) *
       m_render_scale;
+
   VK_CHECK(vkBeginCommandBuffer(cmd, &cmd_begin_info));
+  vkCmdResetQueryPool(cmd, m_query_pool_timestamp, 0,
+                      static_cast<uint32_t>(m_timestamps.size()));
   { // Drawing commands.
+    vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                        m_query_pool_timestamp, 0);
     vkutil::transitionImage(cmd, m_color_image.image, VK_IMAGE_LAYOUT_UNDEFINED,
                             VK_IMAGE_LAYOUT_GENERAL);
     drawBackground(cmd);
+    vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+                        m_query_pool_timestamp, 1);
+
+    vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                        m_query_pool_timestamp, 2);
     vkutil::transitionImage(cmd, m_color_image.image, VK_IMAGE_LAYOUT_GENERAL,
                             VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
     vkutil::transitionImage(cmd, m_depth_image.image, VK_IMAGE_LAYOUT_UNDEFINED,
                             VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
     drawGeometry(cmd);
+    vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+                        m_query_pool_timestamp, 3);
     // Copy to swapchain.
+    vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                        m_query_pool_timestamp, 4);
     vkutil::transitionImage(cmd, m_color_image.image,
                             VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
                             VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
@@ -147,6 +165,8 @@ void Engine::draw() {
     vkutil::transitionImage(cmd, m_swapchain_imgs[swapchain_img_idx],
                             VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
                             VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+    vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+                        m_query_pool_timestamp, 5);
   }
   VK_CHECK(vkEndCommandBuffer(cmd));
 
@@ -178,6 +198,12 @@ void Engine::draw() {
   }
 
   frame_number++;
+  stats.cpu_time.end();
+  vkGetQueryPoolResults(m_device, m_query_pool_timestamp, 0,
+                        static_cast<uint32_t>(m_timestamps.size()),
+                        m_timestamps.size() * sizeof(uint64_t),
+                        m_timestamps.data(), sizeof(uint64_t),
+                        VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
 }
 void Engine::drawBackground(VkCommandBuffer cmd) {
   auto &background = m_compute_pipelines[m_cur_comp_pipeline_idx];
@@ -192,6 +218,9 @@ void Engine::drawBackground(VkCommandBuffer cmd) {
                 std::ceil(m_draw_extent.height / 16.f), 1);
 }
 void Engine::drawGeometry(VkCommandBuffer cmd) {
+  stats.n_triangles = 0;
+  stats.n_drawcalls = 0;
+
   auto drawObjet = [&](const RenderObject &draw, VkDescriptorSet &frame_ds) {
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                       draw.material->p_pipeline->pipeline);
@@ -209,6 +238,8 @@ void Engine::drawGeometry(VkCommandBuffer cmd) {
                        VK_SHADER_STAGE_VERTEX_BIT, 0,
                        sizeof(GPUDrawPushConstants), &push_const);
     vkCmdDrawIndexed(cmd, draw.n_index, 1, draw.first_index, 0, 0);
+    stats.n_drawcalls += 1;
+    stats.n_triangles += draw.n_index / 3;
   };
   VkRenderingAttachmentInfo color_attach = vkinit::attachmentInfo(
       m_color_image.view, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
@@ -274,6 +305,7 @@ void Engine::run() {
   SDL_Event e;
   bool b_quit = false;
   while (!b_quit) {
+    stats.frame_time.begin();
     // Handle events on queue
     while (SDL_PollEvent(&e) != 0) {
       // Close the window when alt-f4 or the X button.
@@ -303,23 +335,39 @@ void Engine::run() {
     ImGui::NewFrame();
     // UI layout.
     {
-      if (ImGui::Begin("background")) {
-        ImGui::Text("Press C to toggle camera roaming.");
+      if (ImGui::Begin("Panel")) {
         ImGui::SliderFloat("Render Scale", &m_render_scale, 0.3f, 1.f);
         auto &selected_pipeline = m_compute_pipelines[m_cur_comp_pipeline_idx];
         ImGui::Text("Selected Compute Pipeline: %s", selected_pipeline.name);
         ImGui::SliderInt("Effect Index", &m_cur_comp_pipeline_idx, 0,
                          m_compute_pipelines.size() - 1);
-
         ImGui::InputFloat4("data1", (float *)&selected_pipeline.data.data1);
         ImGui::InputFloat4("data2", (float *)&selected_pipeline.data.data2);
         ImGui::InputFloat4("data3", (float *)&selected_pipeline.data.data3);
         ImGui::InputFloat4("data4", (float *)&selected_pipeline.data.data4);
+
+        float t_comp = static_cast<float>(m_timestamps[1] - m_timestamps[0]) *
+                       m_timestamp_period / 1000000.f;
+        float t_geom = static_cast<float>(m_timestamps[3] - m_timestamps[2]) *
+                       m_timestamp_period / 1000000.f;
+        float t_other = static_cast<float>(m_timestamps[5] - m_timestamps[4]) *
+                        m_timestamp_period / 1000000.f;
+
+        ImGui::Text("#triangles      %d", stats.n_triangles);
+        ImGui::Text("#drawcalls      %d", stats.n_drawcalls);
+        ImGui::Text("frame time      %f ms", stats.frame_time.period_ms);
+        ImGui::Text("scene update    %f ms", stats.scene_update_time.period_ms);
+        // ImGui::Text("CPU time        %f ms", stats.cpu_time.period_ms);
+
+        ImGui::Text("GPU compute     %f ms", t_comp);
+        ImGui::Text("GPU geometry    %f ms", t_geom);
+        ImGui::Text("GPU others      %f ms", t_other);
       }
       ImGui::End();
     }
     ImGui::Render();
     draw();
+    stats.frame_time.end();
   }
 }
 
@@ -359,6 +407,7 @@ void Engine::initVulkan() {
       selector.set_minimum_version(1, 3)
           .set_required_features_13(features13)
           .set_required_features_12(features12)
+          .add_required_extension(VK_EXT_HOST_QUERY_RESET_EXTENSION_NAME)
           .set_surface(m_surface)
           .select()
           .value();
@@ -367,7 +416,6 @@ void Engine::initVulkan() {
   vkb::DeviceBuilder device_builder{physical_device};
 
   vkb::Device vkb_device = device_builder.build().value();
-
   // Get the VkDevice handle for the rest of a vulkan application.
   m_device = vkb_device.device;
   m_chosen_GPU = physical_device.physical_device;
@@ -383,7 +431,28 @@ void Engine::initVulkan() {
   alloc_info.instance = m_instance;
   alloc_info.flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
   vmaCreateAllocator(&alloc_info, &m_allocator);
-  m_main_deletion_queue.push([&]() { vmaDestroyAllocator(m_allocator); });
+
+  VkPhysicalDeviceProperties properties = {};
+  vkGetPhysicalDeviceProperties(m_chosen_GPU, &properties);
+  if (properties.limits.timestampPeriod == 0)
+    throw std::runtime_error{
+        "Selected GPU does not support timestamp queries."};
+  if (!properties.limits.timestampComputeAndGraphics)
+    throw std::runtime_error{"Not all queues from selected GPU support "
+                             "timestamp queries. Not checking each queue."};
+  m_timestamps.resize(6);
+  VkQueryPoolCreateInfo ci_query_pool = {};
+  ci_query_pool.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;
+  ci_query_pool.queryType = VK_QUERY_TYPE_TIMESTAMP;
+  ci_query_pool.queryCount = static_cast<uint32_t>(m_timestamps.size());
+  VK_CHECK(vkCreateQueryPool(m_device, &ci_query_pool, nullptr,
+                             &m_query_pool_timestamp));
+  m_timestamp_period = properties.limits.timestampPeriod;
+
+  m_main_deletion_queue.push([&]() {
+    vmaDestroyAllocator(m_allocator);
+    vkDestroyQueryPool(m_device, m_query_pool_timestamp, nullptr);
+  });
 }
 void Engine::initSwapchain() {
   fmt::print("init swapchain\n");
@@ -409,7 +478,6 @@ void Engine::initSwapchain() {
   depth_img_usage |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
   m_depth_image =
       createImage(depth_img_ext, VK_FORMAT_D32_SFLOAT, depth_img_usage);
-
   m_main_deletion_queue.push([&]() {
     destroyImage(m_color_image);
     destroyImage(m_depth_image);

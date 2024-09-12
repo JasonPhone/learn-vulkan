@@ -88,6 +88,24 @@ struct GLTFMetallicRoughness {
                                  const MaterialResources &resources,
                                  DescriptorAllocator &d_allocator);
 };
+struct Timer {
+  float period_ms;
+  std::chrono::time_point<std::chrono::system_clock> start_point;
+  void begin() { start_point = std::chrono::system_clock::now(); }
+  void end() {
+    auto end_point = std::chrono::system_clock::now();
+    auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
+        end_point - start_point);
+    period_ms = elapsed.count() / 1000.f;
+  }
+};
+struct EngineStats {
+  int n_triangles;
+  int n_drawcalls;
+  Timer frame_time;
+  Timer scene_update_time;
+  Timer cpu_time;
+};
 
 // FIXME This affects imgui drag lagging.
 constexpr uint32_t kFrameOverlap = 3;
@@ -108,6 +126,7 @@ public:
   bool is_initialized{false};
   int frame_number{0};
   VkExtent2D window_extent{1920, 1080};
+  EngineStats stats;
 
   struct SDL_Window *window{nullptr};
 
@@ -190,6 +209,10 @@ private:
   VkFence m_imm_fence;
   VkCommandBuffer m_imm_cmd;
   VkCommandPool m_imm_cmd_pool;
+
+  VkQueryPool m_query_pool_timestamp;
+  std::vector<uint64_t> m_timestamps;
+  float m_timestamp_period;
 
 private:
   void initVulkan();
