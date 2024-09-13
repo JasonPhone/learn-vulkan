@@ -22,14 +22,13 @@
 
 constexpr bool bUseValidationLayers = true;
 
-Engine *loaded_engine = nullptr;
+static Engine *loaded_engine = nullptr;
 
 Engine &Engine::get() { return *loaded_engine; }
 void Engine::init() {
   // Only one engine initialization is allowed with the application.
   assert(loaded_engine == nullptr);
   loaded_engine = this;
-
   // We initialize SDL and create a window with it.
   SDL_Init(SDL_INIT_VIDEO);
   SDL_WindowFlags window_flags = (SDL_WindowFlags)(SDL_WINDOW_VULKAN);
@@ -41,7 +40,6 @@ void Engine::init() {
   initSwapchain();
   initCommands();
   initSyncStructures();
-
   initDescriptors();
   initPipelines();
 
@@ -49,7 +47,6 @@ void Engine::init() {
 
   initDefaultData();
   m_main_camera.init();
-
   is_initialized = true;
 }
 
@@ -67,17 +64,12 @@ void Engine::cleanup() {
       m_frames[i].deletion_queue.flush();
     }
     m_metal_rough_mat.clearResources(m_device);
+
     /**
      * @note  Global vma allocator must be deleted last.
      *        some allocations rely on this.
      */
     m_main_deletion_queue.flush();
-
-    destroySwapchain();
-    vkDestroySurfaceKHR(m_instance, m_surface, nullptr);
-    vkDestroyDevice(m_device, nullptr);
-    vkb::destroy_debug_utils_messenger(m_instance, m_debug_msngr);
-    vkDestroyInstance(m_instance, nullptr);
 
     ImGui_ImplSDL3_Shutdown();
     ImGui::DestroyContext();
@@ -249,8 +241,8 @@ void Engine::drawGeometry(VkCommandBuffer cmd) {
       vkinit::renderingInfo(m_draw_extent, &color_attach, &depth_attach);
   vkCmdBeginRendering(cmd, &i_render);
   {
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                      m_simple_mesh_pipeline);
+    // vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+    //                   m_simple_mesh_pipeline);
     // Bind texture.
     VkDescriptorSet image_ds = getCurrentFrame().frame_descriptors.allocate(
         m_device, m_single_image_ds_layout);
@@ -306,7 +298,8 @@ void Engine::run() {
   bool b_quit = false;
   while (!b_quit) {
     stats.frame_time.begin();
-    // Handle events on queue
+
+    // Event handling.
     while (SDL_PollEvent(&e) != 0) {
       // Close the window when alt-f4 or the X button.
       if (e.type == SDL_EVENT_QUIT)
@@ -322,6 +315,8 @@ void Engine::run() {
       if (io.WantCaptureMouse == false) // Imgui intercepting mouse.
         m_main_camera.processSDLEvent(e);
     }
+
+    // Overall render configure.
     if (require_resize)
       resizeSwapchain();
     if (stop_rendering) {
@@ -329,11 +324,11 @@ void Engine::run() {
       std::this_thread::sleep_for(std::chrono::milliseconds(100));
       continue;
     }
+
     // UI update.
     ImGui_ImplVulkan_NewFrame();
     ImGui_ImplSDL3_NewFrame();
     ImGui::NewFrame();
-    // UI layout.
     {
       if (ImGui::Begin("Panel")) {
         ImGui::SliderFloat("Render Scale", &m_render_scale, 0.3f, 1.f);
@@ -352,13 +347,11 @@ void Engine::run() {
                        m_timestamp_period / 1000000.f;
         float t_other = static_cast<float>(m_timestamps[5] - m_timestamps[4]) *
                         m_timestamp_period / 1000000.f;
-
         ImGui::Text("#triangles      %d", stats.n_triangles);
         ImGui::Text("#drawcalls      %d", stats.n_drawcalls);
         ImGui::Text("frame time      %f ms", stats.frame_time.period_ms);
         ImGui::Text("scene update    %f ms", stats.scene_update_time.period_ms);
         // ImGui::Text("CPU time        %f ms", stats.cpu_time.period_ms);
-
         ImGui::Text("GPU compute     %f ms", t_comp);
         ImGui::Text("GPU geometry    %f ms", t_geom);
         ImGui::Text("GPU others      %f ms", t_other);
@@ -366,6 +359,8 @@ void Engine::run() {
       ImGui::End();
     }
     ImGui::Render();
+
+    // Pipeline draw.
     draw();
     stats.frame_time.end();
   }
@@ -379,9 +374,7 @@ void Engine::initVulkan() {
                       .use_default_debug_messenger()
                       .require_api_version(1, 3, 0)
                       .build();
-
   vkb::Instance vkb_inst = inst_ret.value();
-
   m_instance = vkb_inst.instance;
   m_debug_msngr = vkb_inst.debug_messenger;
 
@@ -392,7 +385,6 @@ void Engine::initVulkan() {
       .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
   features13.dynamicRendering = true;
   features13.synchronization2 = true;
-
   // Vulkan 1.2 features.
   VkPhysicalDeviceVulkan12Features features12{
       .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
@@ -403,43 +395,53 @@ void Engine::initVulkan() {
   // We want a gpu that can write to the SDL surface and supports vulkan 1.3
   // with the correct features
   vkb::PhysicalDeviceSelector selector{vkb_inst};
-  vkb::PhysicalDevice physical_device =
+  vkb::PhysicalDevice physical_device = {};
+  auto phy_device_list =
       selector.set_minimum_version(1, 3)
           .set_required_features_13(features13)
           .set_required_features_12(features12)
+          // For resetting query pool from host.
           .add_required_extension(VK_EXT_HOST_QUERY_RESET_EXTENSION_NAME)
           .set_surface(m_surface)
-          .select()
-          .value();
+          .select_devices();
+  // Naive select by physical device property.
+  if (phy_device_list.has_value()) {
+    for (const auto &d : phy_device_list.value()) {
+      if (d.properties.limits.timestampPeriod > 0 &&
+          d.properties.limits.timestampComputeAndGraphics) {
+        physical_device = d;
+        m_timestamp_period = d.properties.limits.timestampPeriod;
+        break;
+      }
+    }
+  } else {
+    throw std::runtime_error{
+        "No suitable physical devices by features and extensions."};
+  }
+  if (physical_device.physical_device == VK_NULL_HANDLE) {
+    throw std::runtime_error{
+        "No suitable physical devices by device properties."};
+  }
 
   // Final vulkan device.
   vkb::DeviceBuilder device_builder{physical_device};
-
   vkb::Device vkb_device = device_builder.build().value();
   // Get the VkDevice handle for the rest of a vulkan application.
   m_device = vkb_device.device;
   m_chosen_GPU = physical_device.physical_device;
-
   m_graphic_queue = vkb_device.get_queue(vkb::QueueType::graphics).value();
   m_graphic_queue_family =
       vkb_device.get_queue_index(vkb::QueueType::graphics).value();
 
   // Mem allocator.
-  VmaAllocatorCreateInfo alloc_info = {};
-  alloc_info.physicalDevice = m_chosen_GPU;
-  alloc_info.device = m_device;
-  alloc_info.instance = m_instance;
-  alloc_info.flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
-  vmaCreateAllocator(&alloc_info, &m_allocator);
+  VmaAllocatorCreateInfo ci_alloc = {};
+  ci_alloc.physicalDevice = m_chosen_GPU;
+  ci_alloc.device = m_device;
+  ci_alloc.instance = m_instance;
+  ci_alloc.flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
+  vmaCreateAllocator(&ci_alloc, &m_allocator);
 
-  VkPhysicalDeviceProperties properties = {};
-  vkGetPhysicalDeviceProperties(m_chosen_GPU, &properties);
-  if (properties.limits.timestampPeriod == 0)
-    throw std::runtime_error{
-        "Selected GPU does not support timestamp queries."};
-  if (!properties.limits.timestampComputeAndGraphics)
-    throw std::runtime_error{"Not all queues from selected GPU support "
-                             "timestamp queries. Not checking each queue."};
+  // Profiler.
   m_timestamps.resize(6);
   VkQueryPoolCreateInfo ci_query_pool = {};
   ci_query_pool.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;
@@ -447,11 +449,14 @@ void Engine::initVulkan() {
   ci_query_pool.queryCount = static_cast<uint32_t>(m_timestamps.size());
   VK_CHECK(vkCreateQueryPool(m_device, &ci_query_pool, nullptr,
                              &m_query_pool_timestamp));
-  m_timestamp_period = properties.limits.timestampPeriod;
 
   m_main_deletion_queue.push([&]() {
     vmaDestroyAllocator(m_allocator);
     vkDestroyQueryPool(m_device, m_query_pool_timestamp, nullptr);
+    vkDestroyDevice(m_device, nullptr);
+    vkDestroySurfaceKHR(m_instance, m_surface, nullptr);
+    vkb::destroy_debug_utils_messenger(m_instance, m_debug_msngr);
+    vkDestroyInstance(m_instance, nullptr);
   });
 }
 void Engine::initSwapchain() {
@@ -464,7 +469,7 @@ void Engine::initSwapchain() {
   // Copy from and into.
   color_img_usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
   color_img_usage |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-  // Enable compute shader writing.
+  // Compute shader writing.
   color_img_usage |= VK_IMAGE_USAGE_STORAGE_BIT;
   // Graphics pipelines draw.
   color_img_usage |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
@@ -478,20 +483,22 @@ void Engine::initSwapchain() {
   depth_img_usage |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
   m_depth_image =
       createImage(depth_img_ext, VK_FORMAT_D32_SFLOAT, depth_img_usage);
+
   m_main_deletion_queue.push([&]() {
     destroyImage(m_color_image);
     destroyImage(m_depth_image);
+    destroySwapchain();
   });
 }
 void Engine::initCommands() {
   fmt::print("init commands\n");
   // Create a command pool for commands submitted to the graphics queue.
   // We also want the pool to allow for resetting of individual command buffers
-  VkCommandPoolCreateInfo cmd_pool_info = vkinit::cmdPoolCreateInfo(
+  VkCommandPoolCreateInfo ci_cmd_pool = vkinit::cmdPoolCreateInfo(
       m_graphic_queue_family, VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT);
 
   for (uint32_t i = 0; i < kFrameOverlap; i++) {
-    VK_CHECK(vkCreateCommandPool(m_device, &cmd_pool_info, nullptr,
+    VK_CHECK(vkCreateCommandPool(m_device, &ci_cmd_pool, nullptr,
                                  &m_frames[i].cmd_pool));
     VkCommandBufferAllocateInfo cmd_alloc_info =
         vkinit::cmdBufferAllocInfo(m_frames[i].cmd_pool, 1);
@@ -501,7 +508,7 @@ void Engine::initCommands() {
 
   // Init immediate cmd.
   VK_CHECK(
-      vkCreateCommandPool(m_device, &cmd_pool_info, nullptr, &m_imm_cmd_pool));
+      vkCreateCommandPool(m_device, &ci_cmd_pool, nullptr, &m_imm_cmd_pool));
   VkCommandBufferAllocateInfo cmd_alloc_info =
       vkinit::cmdBufferAllocInfo(m_imm_cmd_pool, 1);
   VK_CHECK(vkAllocateCommandBuffers(m_device, &cmd_alloc_info, &m_imm_cmd));
@@ -514,30 +521,27 @@ void Engine::initSyncStructures() {
   fmt::print("init sync structures\n");
 
   // The fence starts signalled so we can wait on it on the first frame.
-  VkFenceCreateInfo fenceCreateInfo =
+  VkFenceCreateInfo ci_fence =
       vkinit::fenceCreateInfo(VK_FENCE_CREATE_SIGNALED_BIT);
-  VkSemaphoreCreateInfo semaphoreCreateInfo = vkinit::semaphoreCreateInfo();
+  VkSemaphoreCreateInfo ci_semaphore = vkinit::semaphoreCreateInfo();
 
   for (uint32_t i = 0; i < kFrameOverlap; i++) {
-    VK_CHECK(vkCreateFence(m_device, &fenceCreateInfo, nullptr,
-                           &m_frames[i].render_fence));
-    VK_CHECK(vkCreateSemaphore(m_device, &semaphoreCreateInfo, nullptr,
+    VK_CHECK(
+        vkCreateFence(m_device, &ci_fence, nullptr, &m_frames[i].render_fence));
+    VK_CHECK(vkCreateSemaphore(m_device, &ci_semaphore, nullptr,
                                &m_frames[i].swapchain_semaphore));
-    VK_CHECK(vkCreateSemaphore(m_device, &semaphoreCreateInfo, nullptr,
+    VK_CHECK(vkCreateSemaphore(m_device, &ci_semaphore, nullptr,
                                &m_frames[i].render_semaphore));
   }
-  VK_CHECK(vkCreateFence(m_device, &fenceCreateInfo, nullptr, &m_imm_fence));
+  VK_CHECK(vkCreateFence(m_device, &ci_fence, nullptr, &m_imm_fence));
   m_main_deletion_queue.push(
       [&]() { vkDestroyFence(m_device, m_imm_fence, nullptr); });
 }
 void Engine::createSwapchain(int w, int h) {
   vkb::SwapchainBuilder swapchainBuilder{m_chosen_GPU, m_device, m_surface};
-
   m_swapchain_img_format = VK_FORMAT_B8G8R8A8_UNORM;
-
   vkb::Swapchain vkbSwapchain =
       swapchainBuilder
-          //.use_default_format_selection()
           .set_desired_format(VkSurfaceFormatKHR{
               .format = m_swapchain_img_format,
               .colorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR})
@@ -620,16 +624,16 @@ void Engine::initPipelines() {
   m_metal_rough_mat.buildPipelines(this);
 }
 void Engine::initBackgroundPipelines() {
+  VkPushConstantRange push_range = {};
+  push_range.offset = 0;
+  push_range.size = sizeof(ComputePushConstants);
+  push_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
   // Create pipeline layout.
   VkPipelineLayoutCreateInfo ci_comp_layout = {};
   ci_comp_layout.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
   ci_comp_layout.pNext = nullptr;
   ci_comp_layout.pSetLayouts = &m_draw_image_ds_layout;
   ci_comp_layout.setLayoutCount = 1;
-  VkPushConstantRange push_range = {};
-  push_range.offset = 0;
-  push_range.size = sizeof(ComputePushConstants);
-  push_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
   ci_comp_layout.pPushConstantRanges = &push_range;
   ci_comp_layout.pushConstantRangeCount = 1;
   VK_CHECK(vkCreatePipelineLayout(m_device, &ci_comp_layout, nullptr,
@@ -772,23 +776,19 @@ void Engine::immediateSubmit(std::function<void(VkCommandBuffer cmd)> &&func) {
   VK_CHECK(vkResetCommandBuffer(m_imm_cmd, 0));
 
   VkCommandBuffer cmd = m_imm_cmd;
-
   VkCommandBufferBeginInfo cmdBeginInfo =
       vkinit::cmdBufferBeginInfo(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
-
   VK_CHECK(vkBeginCommandBuffer(cmd, &cmdBeginInfo));
 
   func(cmd);
 
   VK_CHECK(vkEndCommandBuffer(cmd));
-
   VkCommandBufferSubmitInfo cmd_info = vkinit::cmdBufferSubmitInfo(cmd);
   VkSubmitInfo2 submit = vkinit::submitInfo(&cmd_info, nullptr, nullptr);
 
   // Submit command buffer to the queue and execute it.
   // imm_fence will now block until the graphic commands finish execution.
   VK_CHECK(vkQueueSubmit2(m_graphic_queue, 1, &submit, m_imm_fence));
-
   VK_CHECK(vkWaitForFences(m_device, 1, &m_imm_fence, true, VK_ONE_SEC));
 }
 
@@ -929,37 +929,38 @@ GPUMeshBuffers Engine::uploadMesh(std::span<uint32_t> indices,
 }
 
 void Engine::initDefaultData() {
-  std::array<Vertex, 4> rect_vertices;
-  rect_vertices[0].position = {0.5, -0.5, 0};
-  rect_vertices[1].position = {0.5, 0.5, 0};
-  rect_vertices[2].position = {-0.5, -0.5, 0};
-  rect_vertices[3].position = {-0.5, 0.5, 0};
-  rect_vertices[0].color = {0.8, 0.2, 0.2, 1};
-  rect_vertices[1].color = {0.2, 0.8, 0.2, 1};
-  rect_vertices[2].color = {0.2, 0.2, 0.8, 1};
-  rect_vertices[3].color = {0.8, 0.8, 0.8, 1};
+  // std::array<Vertex, 4> rect_vertices;
+  // rect_vertices[0].position = {0.5, -0.5, 0};
+  // rect_vertices[1].position = {0.5, 0.5, 0};
+  // rect_vertices[2].position = {-0.5, -0.5, 0};
+  // rect_vertices[3].position = {-0.5, 0.5, 0};
+  // rect_vertices[0].color = {0.8, 0.2, 0.2, 1};
+  // rect_vertices[1].color = {0.2, 0.8, 0.2, 1};
+  // rect_vertices[2].color = {0.2, 0.2, 0.8, 1};
+  // rect_vertices[3].color = {0.8, 0.8, 0.8, 1};
 
-  std::array<uint32_t, 6> rect_indices;
-  rect_indices[0] = 0;
-  rect_indices[1] = 1;
-  rect_indices[2] = 2;
-  rect_indices[3] = 2;
-  rect_indices[4] = 1;
-  rect_indices[5] = 3;
+  // std::array<uint32_t, 6> rect_indices;
+  // rect_indices[0] = 0;
+  // rect_indices[1] = 1;
+  // rect_indices[2] = 2;
+  // rect_indices[3] = 2;
+  // rect_indices[4] = 1;
+  // rect_indices[5] = 3;
 
-  m_simple_mesh = uploadMesh(rect_indices, rect_vertices);
-  m_main_deletion_queue.push([&]() {
-    destroyBuffer(m_simple_mesh.index_buffer);
-    destroyBuffer(m_simple_mesh.vertex_buffer);
-  });
+  // m_simple_mesh = uploadMesh(rect_indices, rect_vertices);
+  // m_main_deletion_queue.push([&]() {
+  //   destroyBuffer(m_simple_mesh.index_buffer);
+  //   destroyBuffer(m_simple_mesh.vertex_buffer);
+  // });
 
-  m_meshes = loadGltfMeshes(this, "../../assets/models/basic_mesh.glb").value();
-  for (auto &&mesh : m_meshes) {
-    m_main_deletion_queue.push([&]() {
-      destroyBuffer(mesh->mesh_buffers.vertex_buffer);
-      destroyBuffer(mesh->mesh_buffers.index_buffer);
-    });
-  }
+  // m_meshes = loadGltfMeshes(this,
+  // "../../assets/models/basic_mesh.glb").value(); for (auto &&mesh : m_meshes)
+  // {
+  //   m_main_deletion_queue.push([&]() {
+  //     destroyBuffer(mesh->mesh_buffers.vertex_buffer);
+  //     destroyBuffer(mesh->mesh_buffers.index_buffer);
+  //   });
+  // }
 
   uint32_t white = glm::packUnorm4x8(glm::vec4(1, 1, 1, 1));
   m_white_image =
@@ -1002,34 +1003,35 @@ void Engine::initDefaultData() {
     destroyImage(m_error_image);
   });
 
-  GLTFMetallicRoughness::MaterialResources mat_res;
-  mat_res.color_image = m_white_image;
-  mat_res.color_sampler = m_default_sampler_linear;
-  mat_res.metal_rough_image = m_white_image;
-  mat_res.metal_rough_sampler = m_default_sampler_linear;
-  AllocatedBuffer mat_const = createBuffer(
-      sizeof(GLTFMetallicRoughness::MaterialConstants),
-      VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
-  GLTFMetallicRoughness::MaterialConstants *scene_uniform =
-      (GLTFMetallicRoughness::MaterialConstants *)
-          mat_const.allocation->GetMappedData();
-  scene_uniform->color_factors = glm::vec4{1, 1, 1, 1};
-  scene_uniform->metal_rough_factors = glm::vec4{1, 0.5, 0, 0};
-  m_main_deletion_queue.push([=, this]() { destroyBuffer(mat_const); });
-  mat_res.data_buffer = mat_const.buffer;
-  mat_res.data_buffer_offset = 0;
-  m_default_mat = m_metal_rough_mat.writeMaterial(
-      m_device, MaterialPass::BasicMainColor, mat_res, m_global_ds_allocator);
+  // GLTFMetallicRoughness::MaterialResources mat_res;
+  // mat_res.color_image = m_white_image;
+  // mat_res.color_sampler = m_default_sampler_linear;
+  // mat_res.metal_rough_image = m_white_image;
+  // mat_res.metal_rough_sampler = m_default_sampler_linear;
+  // AllocatedBuffer mat_const = createBuffer(
+  //     sizeof(GLTFMetallicRoughness::MaterialConstants),
+  //     VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
+  // GLTFMetallicRoughness::MaterialConstants *scene_uniform =
+  //     (GLTFMetallicRoughness::MaterialConstants *)
+  //         mat_const.allocation->GetMappedData();
+  // scene_uniform->color_factors = glm::vec4{1, 1, 1, 1};
+  // scene_uniform->metal_rough_factors = glm::vec4{1, 0.5, 0, 0};
+  // m_main_deletion_queue.push([=, this]() { destroyBuffer(mat_const); });
+  // mat_res.data_buffer = mat_const.buffer;
+  // mat_res.data_buffer_offset = 0;
+  // m_default_material = m_metal_rough_mat.writeMaterial(
+  //     m_device, MaterialPass::BasicMainColor, mat_res,
+  //     m_global_ds_allocator);
 
-  for (auto &m : m_meshes) {
-    std::shared_ptr<MeshNode> node = std::make_shared<MeshNode>();
-    node->mesh = m;
-    node->transform_local = glm::mat4{1.f};
-    node->transform_world = glm::mat4{1.f};
-    for (auto &s : node->mesh->surfaces)
-      s.material = std::make_shared<GLTFMaterial>(m_default_mat);
-    m_loaded_nodes[m->name] = std::move(node);
-  }
+  // for (auto &m : m_meshes) {
+  //   std::shared_ptr<MeshNode> node = std::make_shared<MeshNode>();
+  //   node->mesh = m;
+  //   node->transform_local = glm::mat4{1.f};
+  //   node->transform_world = glm::mat4{1.f};
+  //   for (auto &s : node->mesh->surfaces)
+  //     s.material = std::make_shared<GLTFMaterial>(m_default_mat);
+  //   m_loaded_nodes[m->name] = std::move(node);
+  // }
 
   std::string structurePath = {"../../assets/models/structure.glb"};
   auto structureFile = loadGltf(this, structurePath);
@@ -1115,12 +1117,12 @@ void Engine::updateScene() {
   m_main_draw_context.opaque_surfaces.clear();
   m_main_draw_context.transparent_surfaces.clear();
 
-  m_loaded_nodes["Suzanne"]->draw(glm::mat4{1.f}, m_main_draw_context);
-  for (int x = -3; x < 3; x++) {
-    glm::mat4 scale = glm::scale(glm::vec3{0.2});
-    glm::mat4 translation = glm::translate(glm::vec3{x + 0.5, 1, 0});
-    m_loaded_nodes["Cube"]->draw(translation * scale, m_main_draw_context);
-  }
+  // m_loaded_nodes["Suzanne"]->draw(glm::mat4{1.f}, m_main_draw_context);
+  // for (int x = -3; x < 3; x++) {
+  //   glm::mat4 scale = glm::scale(glm::vec3{0.2});
+  //   glm::mat4 translation = glm::translate(glm::vec3{x + 0.5, 1, 0});
+  //   m_loaded_nodes["Cube"]->draw(translation * scale, m_main_draw_context);
+  // }
   m_loaded_scenes["structure"]->draw(glm::mat4{1.f}, m_main_draw_context);
 
   m_scene_data.view = m_main_camera.getViewMatrix();

@@ -101,16 +101,15 @@ struct MaterialInstance {
   VkDescriptorSet ds;
   MaterialPass pass_type;
 };
-
 struct GLTFMaterial {
   MaterialInstance data;
 };
+
 struct GeometrySurface {
   uint32_t start_index;
   uint32_t count;
   std::shared_ptr<GLTFMaterial> material;
 };
-
 struct MeshAsset {
   std::string name;
   std::vector<GeometrySurface> surfaces;

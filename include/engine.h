@@ -59,6 +59,10 @@ struct ComputePipeline {
   ComputePushConstants data;
 };
 
+/**
+ * @brief Material builder.
+ *
+ */
 struct GLTFMetallicRoughness {
   MaterialPipeline pipeline_opaque;
   MaterialPipeline pipeline_transparent;
@@ -69,7 +73,6 @@ struct GLTFMetallicRoughness {
     // 256 bytes padding.
     glm::vec4 padding[14];
   };
-
   struct MaterialResources {
     AllocatedImage color_image;
     VkSampler color_sampler;
@@ -88,6 +91,7 @@ struct GLTFMetallicRoughness {
                                  const MaterialResources &resources,
                                  DescriptorAllocator &d_allocator);
 };
+
 struct Timer {
   float period_ms;
   std::chrono::time_point<std::chrono::system_clock> start_point;
@@ -185,7 +189,7 @@ private:
   AllocatedImage m_color_image;
   AllocatedImage m_depth_image;
 
-  MaterialInstance m_default_mat;
+  MaterialInstance m_default_material;
   GLTFMetallicRoughness m_metal_rough_mat;
 
   DescriptorAllocator m_global_ds_allocator;

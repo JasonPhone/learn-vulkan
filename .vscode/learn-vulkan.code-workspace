@@ -23,7 +23,8 @@
       "Swapchains",
       "VKAPI",
       "vkinit",
-      "vkutil"
+      "vkutil",
+      "Vulkan"
     ],
     "glsl-canvas.useCompactFormatter": false,
     "glsllint.glslangValidatorArgs": [
