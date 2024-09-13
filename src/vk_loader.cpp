@@ -15,6 +15,7 @@
 #include <fastgltf/glm_element_traits.hpp>
 #include <fastgltf/tools.hpp>
 
+// Load mesh data only, no materials.
 std::optional<std::vector<std::shared_ptr<MeshAsset>>>
 loadGltfMeshes(Engine *engine, std::filesystem::path file_path) {
   fmt::println("Loading GLTF mesh {}", file_path.string());
@@ -426,6 +427,7 @@ loadGltf(Engine *engine, std::filesystem::path file_path) {
     // find if the node has a mesh, and if it does hook it to the mesh pointer
     // and allocate it with the MeshNode class
     if (node.meshIndex.has_value()) {
+      // MeshNode is actually created.
       new_node = std::make_shared<MeshNode>();
       static_cast<MeshNode *>(new_node.get())->mesh = meshes[*node.meshIndex];
     } else {

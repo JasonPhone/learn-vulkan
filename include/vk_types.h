@@ -96,6 +96,10 @@ struct MaterialPipeline {
   VkPipelineLayout layout;
 };
 enum class MaterialPass : uint8_t { BasicMainColor, BasicTransparent, Others };
+/**
+ * @brief Final material instance, ready to render,
+ *        holding the actual shading pipeline and binding infomation.
+ */
 struct MaterialInstance {
   MaterialPipeline *p_pipeline;
   VkDescriptorSet ds;

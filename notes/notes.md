@@ -14,6 +14,8 @@ Clean code structure.
 
 tick-based rendering.
 
+Take Vulkan stuff out of glTF loaders. Use a middle layer to map the data. May need wide exploration.
+
 # Notes
 
 DescriptorPool for ImGui may *change*, the destroy callback should use value capture.
