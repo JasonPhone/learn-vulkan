@@ -10,7 +10,7 @@ Render pass and dynamic rendering.
 
 # TODO
 
-- [ ] Finish tutor.
+- [x] Finish tutor.
 - [ ] Clean code structure.
 
 # Notes
