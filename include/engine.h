@@ -106,9 +106,9 @@ struct Timer {
 struct EngineStats {
   int n_triangles;
   int n_drawcalls;
-  Timer frame_time;
-  Timer scene_update_time;
-  Timer cpu_time;
+  Timer t_frame;
+  Timer t_scene_update;
+  Timer t_cpu_draw;
 };
 
 // FIXME This affects imgui drag lagging.

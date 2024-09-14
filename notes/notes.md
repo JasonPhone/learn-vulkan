@@ -10,11 +10,8 @@ Render pass and dynamic rendering.
 
 # TODO
 
-Clean code structure.
-
-tick-based rendering.
-
-Take Vulkan stuff out of glTF loaders. Use a middle layer to map the data. May need wide exploration.
+- [ ] Finish tutor.
+- [ ] Clean code structure.
 
 # Notes
 
@@ -24,7 +21,6 @@ vma causes too much compile warning, suppressed using `#pragma clang diagnostic`
 
 Using dynamic rendering instead of `VkRenderPass`. May not work on mobile device where tile rendering is common.
 
-<!-- TODO Try impl reversed-z: projection mat, depth compare operator, depth attachment clear value. -->
 Reversed-z takes depth value 1(INF in glm::perspective()) as near plane and 0 as far.
 Can mitigate z-fighting because
 1) objects are "pushed back" to far plane through perspective projection;

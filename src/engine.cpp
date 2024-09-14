@@ -79,10 +79,10 @@ void Engine::cleanup() {
 }
 
 void Engine::draw() {
-  stats.scene_update_time.begin();
+  stats.t_scene_update.begin();
   updateScene();
-  stats.scene_update_time.end();
-  stats.cpu_time.begin();
+  stats.t_scene_update.end();
+  stats.t_cpu_draw.begin();
   VK_CHECK(vkWaitForFences(m_device, 1, &getCurrentFrame().render_fence, true,
                            VK_ONE_SEC));
   // Free objects dedicated to this frame (in last iteration).
@@ -98,7 +98,7 @@ void Engine::draw() {
                                      nullptr, &swapchain_img_idx);
   if (e == VK_ERROR_OUT_OF_DATE_KHR) {
     require_resize = true;
-    stats.cpu_time.end();
+    stats.t_cpu_draw.end();
     return;
   }
 
@@ -190,7 +190,7 @@ void Engine::draw() {
   }
 
   frame_number++;
-  stats.cpu_time.end();
+  stats.t_cpu_draw.end();
   vkGetQueryPoolResults(m_device, m_query_pool_timestamp, 0,
                         static_cast<uint32_t>(m_timestamps.size()),
                         m_timestamps.size() * sizeof(uint64_t),
@@ -212,26 +212,48 @@ void Engine::drawBackground(VkCommandBuffer cmd) {
 void Engine::drawGeometry(VkCommandBuffer cmd) {
   stats.n_triangles = 0;
   stats.n_drawcalls = 0;
-
-  auto drawObjet = [&](const RenderObject &draw, VkDescriptorSet &frame_ds) {
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                      draw.material->p_pipeline->pipeline);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                            draw.material->p_pipeline->layout, 0, 1, &frame_ds,
-                            0, nullptr);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                            draw.material->p_pipeline->layout, 1, 1,
-                            &draw.material->ds, 0, nullptr);
-    vkCmdBindIndexBuffer(cmd, draw.index_buffer, 0, VK_INDEX_TYPE_UINT32);
+  // Should reduce rebinding?
+  MaterialPipeline *last_pipeline = nullptr;
+  MaterialInstance *last_material = nullptr;
+  VkBuffer last_index_buffer = VK_NULL_HANDLE;
+  auto drawObjet = [&](const RenderObject &r, VkDescriptorSet &frame_ds) {
+    if (r.material != last_material) {
+      last_material = r.material;
+      if (r.material->p_pipeline != last_pipeline) {
+        last_pipeline = r.material->p_pipeline;
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                          r.material->p_pipeline->pipeline);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                r.material->p_pipeline->layout, 0, 1, &frame_ds,
+                                0, nullptr);
+        VkViewport view_port = {
+            .x = 0, .y = 0, .minDepth = 0.f, .maxDepth = 1.f};
+        view_port.width = m_draw_extent.width;
+        view_port.height = m_draw_extent.height;
+        vkCmdSetViewport(cmd, 0, 1, &view_port);
+        VkRect2D scissor = {};
+        scissor.offset.x = scissor.offset.y = 0;
+        scissor.extent.width = m_draw_extent.width;
+        scissor.extent.height = m_draw_extent.height;
+        vkCmdSetScissor(cmd, 0, 1, &scissor);
+      }
+      vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                              r.material->p_pipeline->layout, 1, 1,
+                              &r.material->ds, 0, nullptr);
+    }
+    if (r.index_buffer != last_index_buffer) {
+      last_index_buffer = r.index_buffer;
+      vkCmdBindIndexBuffer(cmd, r.index_buffer, 0, VK_INDEX_TYPE_UINT32);
+    }
     GPUDrawPushConstants push_const;
-    push_const.vertex_buffer_address = draw.vertex_buffer_address;
-    push_const.world_mat = draw.transform;
-    vkCmdPushConstants(cmd, draw.material->p_pipeline->layout,
+    push_const.vertex_buffer_address = r.vertex_buffer_address;
+    push_const.world_mat = r.transform;
+    vkCmdPushConstants(cmd, r.material->p_pipeline->layout,
                        VK_SHADER_STAGE_VERTEX_BIT, 0,
                        sizeof(GPUDrawPushConstants), &push_const);
-    vkCmdDrawIndexed(cmd, draw.n_index, 1, draw.first_index, 0, 0);
+    vkCmdDrawIndexed(cmd, r.n_index, 1, r.first_index, 0, 0);
     stats.n_drawcalls += 1;
-    stats.n_triangles += draw.n_index / 3;
+    stats.n_triangles += r.n_index / 3;
   };
   VkRenderingAttachmentInfo color_attach = vkinit::attachmentInfo(
       m_color_image.view, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
@@ -275,15 +297,6 @@ void Engine::drawGeometry(VkCommandBuffer cmd) {
       writer.updateDescriptorSet(m_device, frame_ds);
     }
 
-    VkViewport view_port = {.x = 0, .y = 0, .minDepth = 0.f, .maxDepth = 1.f};
-    view_port.width = m_draw_extent.width;
-    view_port.height = m_draw_extent.height;
-    vkCmdSetViewport(cmd, 0, 1, &view_port);
-    VkRect2D scissor = {};
-    scissor.offset.x = scissor.offset.y = 0;
-    scissor.extent.width = m_draw_extent.width;
-    scissor.extent.height = m_draw_extent.height;
-    vkCmdSetScissor(cmd, 0, 1, &scissor);
     for (auto &r : m_main_draw_context.opaque_surfaces)
       drawObjet(r, frame_ds);
     for (auto &r : m_main_draw_context.transparent_surfaces)
@@ -297,7 +310,7 @@ void Engine::run() {
   SDL_Event e;
   bool b_quit = false;
   while (!b_quit) {
-    stats.frame_time.begin();
+    stats.t_frame.begin();
 
     // Event handling.
     while (SDL_PollEvent(&e) != 0) {
@@ -347,14 +360,17 @@ void Engine::run() {
                        m_timestamp_period / 1000000.f;
         float t_other = static_cast<float>(m_timestamps[5] - m_timestamps[4]) *
                         m_timestamp_period / 1000000.f;
-        ImGui::Text("#triangles      %d", stats.n_triangles);
-        ImGui::Text("#drawcalls      %d", stats.n_drawcalls);
-        ImGui::Text("frame time      %f ms", stats.frame_time.period_ms);
-        ImGui::Text("scene update    %f ms", stats.scene_update_time.period_ms);
-        // ImGui::Text("CPU time        %f ms", stats.cpu_time.period_ms);
-        ImGui::Text("GPU compute     %f ms", t_comp);
-        ImGui::Text("GPU geometry    %f ms", t_geom);
-        ImGui::Text("GPU others      %f ms", t_other);
+        ImGui::Text("Stats:");
+        ImGui::Text("\t#triangles      %d", stats.n_triangles);
+        ImGui::Text("\t#drawcalls      %d", stats.n_drawcalls);
+        ImGui::Text("CPU time:");
+        ImGui::Text("\tframe time      %f ms", stats.t_frame.period_ms);
+        ImGui::Text("\tscene update    %f ms", stats.t_scene_update.period_ms);
+        ImGui::Text("\tCPU draw time   %f ms", stats.t_cpu_draw.period_ms);
+        ImGui::Text("GPU time:");
+        ImGui::Text("\tGPU compute     %f ms", t_comp);
+        ImGui::Text("\tGPU geometry    %f ms", t_geom);
+        ImGui::Text("\tGPU others      %f ms", t_other);
       }
       ImGui::End();
     }
@@ -362,7 +378,7 @@ void Engine::run() {
 
     // Pipeline draw.
     draw();
-    stats.frame_time.end();
+    stats.t_frame.end();
   }
 }
 
