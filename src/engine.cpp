@@ -24,6 +24,37 @@ constexpr bool bUseValidationLayers = true;
 
 static Engine *loaded_engine = nullptr;
 
+bool isVisible(const RenderObject &obj, const glm::mat4 &view_proj) {
+  std::array<glm::vec3, 8> corners{
+      glm::vec3{1, 1, 1},   glm::vec3{1, 1, -1},   glm::vec3{1, -1, 1},
+      glm::vec3{1, -1, -1}, glm::vec3{-1, 1, 1},   glm::vec3{-1, 1, -1},
+      glm::vec3{-1, -1, 1}, glm::vec3{-1, -1, -1},
+  };
+  glm::vec3 min = {1.5, 1.5, 1.5};
+  glm::vec3 max = {-1.5, -1.5, -1.5};
+  glm::mat4 matrix = view_proj * obj.transform;
+
+  for (int c = 0; c < 8; c++) {
+    // The sphere is inscribed of this cube.
+    glm::vec4 v =
+        matrix *
+        glm::vec4(obj.bound.origin + (corners[c] * obj.bound.radius), 1.f);
+    // Perspective correction.
+    v.x = v.x / v.w;
+    v.y = v.y / v.w;
+    v.z = v.z / v.w;
+    min = glm::min(glm::vec3{v.x, v.y, v.z}, min);
+    max = glm::max(glm::vec3{v.x, v.y, v.z}, max);
+  }
+  // check the clip space box is within the view
+  if (min.z > 1.f || max.z < 0.f || min.x > 1.f || max.x < -1.f ||
+      min.y > 1.f || max.y < -1.f) {
+    return false;
+  } else {
+    return true;
+  }
+}
+
 Engine &Engine::get() { return *loaded_engine; }
 void Engine::init() {
   // Only one engine initialization is allowed with the application.
@@ -212,6 +243,14 @@ void Engine::drawBackground(VkCommandBuffer cmd) {
 void Engine::drawGeometry(VkCommandBuffer cmd) {
   stats.n_triangles = 0;
   stats.n_drawcalls = 0;
+  std::vector<size_t> opaque_index;
+  opaque_index.reserve(m_main_draw_context.opaque_surfaces.size());
+  // Visibility culling.
+  for (size_t i = 0; i < m_main_draw_context.opaque_surfaces.size(); i++) {
+    if (isVisible(m_main_draw_context.opaque_surfaces[i],
+                  m_scene_data.view_proj))
+      opaque_index.push_back(i);
+  }
   // Should reduce rebinding?
   MaterialPipeline *last_pipeline = nullptr;
   MaterialInstance *last_material = nullptr;
@@ -297,8 +336,10 @@ void Engine::drawGeometry(VkCommandBuffer cmd) {
       writer.updateDescriptorSet(m_device, frame_ds);
     }
 
-    for (auto &r : m_main_draw_context.opaque_surfaces)
-      drawObjet(r, frame_ds);
+    // for (auto &r : m_main_draw_context.opaque_surfaces)
+    //   drawObjet(r, frame_ds);
+    for (auto &idx : opaque_index)
+      drawObjet(m_main_draw_context.opaque_surfaces[idx], frame_ds);
     for (auto &r : m_main_draw_context.transparent_surfaces)
       drawObjet(r, frame_ds);
   }
@@ -1117,9 +1158,15 @@ AllocatedImage Engine::createImage(void *data, VkExtent3D size, VkFormat format,
     vkCmdCopyBufferToImage(cmd, upload.buffer, new_image.image,
                            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
                            &copy_region);
-    vkutil::transitionImage(cmd, new_image.image,
-                            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    if (mipmap) {
+      vkutil::generateMipmap(
+          cmd, new_image.image,
+          VkExtent2D{new_image.extent.width, new_image.extent.height});
+    } else {
+      vkutil::transitionImage(cmd, new_image.image,
+                              VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                              VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    }
   });
   destroyBuffer(upload);
   return new_image;

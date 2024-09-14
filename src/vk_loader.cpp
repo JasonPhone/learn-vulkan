@@ -41,11 +41,12 @@ VkSamplerMipmapMode extractMipmapMode(fastgltf::Filter filter) {
 }
 std::optional<AllocatedImage> loadImage(Engine *engine, fastgltf::Asset &asset,
                                         fastgltf::Image &image) {
+  bool mipmap = true;
   AllocatedImage newImage{};
   int w, h, n_channels;
   std::visit(
       fastgltf::visitor{
-          [](auto &arg) {},
+          [](auto &) {},
           [&](fastgltf::sources::URI &filePath) {
             // fmt::println("file path {}", filePath.uri.c_str());
             // We don't support offsets with stbi.
@@ -62,7 +63,7 @@ std::optional<AllocatedImage> loadImage(Engine *engine, fastgltf::Asset &asset,
               img_size.depth = 1;
               newImage =
                   engine->createImage(data, img_size, VK_FORMAT_R8G8B8A8_UNORM,
-                                      VK_IMAGE_USAGE_SAMPLED_BIT, false);
+                                      VK_IMAGE_USAGE_SAMPLED_BIT, mipmap);
               stbi_image_free(data);
             }
           },
@@ -78,7 +79,7 @@ std::optional<AllocatedImage> loadImage(Engine *engine, fastgltf::Asset &asset,
               img_size.depth = 1;
               newImage =
                   engine->createImage(data, img_size, VK_FORMAT_R8G8B8A8_UNORM,
-                                      VK_IMAGE_USAGE_SAMPLED_BIT, false);
+                                      VK_IMAGE_USAGE_SAMPLED_BIT, mipmap);
               stbi_image_free(data);
             }
           },
@@ -100,7 +101,7 @@ std::optional<AllocatedImage> loadImage(Engine *engine, fastgltf::Asset &asset,
                                imagesize.depth = 1;
                                newImage = engine->createImage(
                                    data, imagesize, VK_FORMAT_R8G8B8A8_UNORM,
-                                   VK_IMAGE_USAGE_SAMPLED_BIT, false);
+                                   VK_IMAGE_USAGE_SAMPLED_BIT, mipmap);
 
                                stbi_image_free(data);
                              }
@@ -262,9 +263,9 @@ loadGltf(Engine *engine, std::filesystem::path file_path) {
     indices.clear();
     vertices.clear();
     for (auto &&p : mesh.primitives) {
-      GeometrySurface newSurface;
-      newSurface.start_index = (uint32_t)indices.size();
-      newSurface.count =
+      GeometrySurface new_surface;
+      new_surface.start_index = (uint32_t)indices.size();
+      new_surface.count =
           (uint32_t)gltf.accessors[p.indicesAccessor.value()].count;
       size_t initial_vtx = vertices.size();
       { // load indexes
@@ -281,13 +282,13 @@ loadGltf(Engine *engine, std::filesystem::path file_path) {
         vertices.resize(vertices.size() + posAccessor.count);
         fastgltf::iterateAccessorWithIndex<glm::vec3>(
             gltf, posAccessor, [&](glm::vec3 v, size_t index) {
-              Vertex newvtx;
-              newvtx.position = v;
-              newvtx.normal = {1, 0, 0};
-              newvtx.color = glm::vec4{1.f};
-              newvtx.uv_x = 0;
-              newvtx.uv_y = 0;
-              vertices[initial_vtx + index] = newvtx;
+              Vertex new_vert;
+              new_vert.position = v;
+              new_vert.normal = {1, 0, 0};
+              new_vert.color = glm::vec4{1.f};
+              new_vert.uv_x = 0;
+              new_vert.uv_y = 0;
+              vertices[initial_vtx + index] = new_vert;
             });
       }
       auto normals = p.findAttribute("NORMAL");
@@ -316,10 +317,20 @@ loadGltf(Engine *engine, std::filesystem::path file_path) {
             });
       }
       if (p.materialIndex.has_value())
-        newSurface.material = materials[p.materialIndex.value()];
+        new_surface.material = materials[p.materialIndex.value()];
       else
-        newSurface.material = materials[0];
-      new_mesh->surfaces.push_back(newSurface);
+        new_surface.material = materials[0];
+
+      glm::vec3 min_pos = vertices[initial_vtx].position;
+      glm::vec3 max_pos = vertices[initial_vtx].position;
+      for (size_t i = initial_vtx; i < vertices.size(); i++) {
+        min_pos = glm::min(min_pos, vertices[i].position);
+        max_pos = glm::max(max_pos, vertices[i].position);
+      }
+      new_surface.bound.origin = 0.5f * (min_pos + max_pos);
+      new_surface.bound.radius = glm::length(0.5f * (max_pos - min_pos));
+
+      new_mesh->surfaces.push_back(new_surface);
     }
     new_mesh->mesh_buffers = engine->uploadMesh(indices, vertices);
   }

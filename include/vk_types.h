@@ -109,10 +109,15 @@ struct GLTFMaterial {
   MaterialInstance data;
 };
 
+struct GeometryBound {
+  glm::vec3 origin;
+  float radius;
+};
 struct GeometrySurface {
   uint32_t start_index;
   uint32_t count;
   std::shared_ptr<GLTFMaterial> material;
+  GeometryBound bound;
 };
 struct MeshAsset {
   std::string name;

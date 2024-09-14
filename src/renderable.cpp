@@ -23,7 +23,17 @@ void MeshNode::draw(const glm::mat4 &top_matrix, DrawContext &context) {
     surface.transform = node_matrix;
     surface.vertex_buffer_address = mesh->mesh_buffers.vertex_buffer_address;
 
-    context.opaque_surfaces.push_back(surface);
+    surface.bound = s.bound;
+
+    switch (s.material->data.pass_type) {
+    case MaterialPass::BasicMainColor:
+      context.opaque_surfaces.push_back(surface);
+    case MaterialPass::Others:
+      break;
+    case MaterialPass::BasicTransparent:
+      context.transparent_surfaces.push_back(surface);
+      break;
+    }
   }
   Node::draw(top_matrix, context);
 }

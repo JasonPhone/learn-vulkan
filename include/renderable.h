@@ -15,6 +15,7 @@ struct RenderObject {
   MaterialInstance *material;
   glm::mat4 transform;
   VkDeviceAddress vertex_buffer_address;
+  GeometryBound bound;
 };
 struct DrawContext {
   std::vector<RenderObject> opaque_surfaces;
