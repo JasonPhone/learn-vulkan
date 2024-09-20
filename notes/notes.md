@@ -28,6 +28,11 @@ Can mitigate z-fighting because
 
 By now (1419b16) the descriptor set is used to bind output image of compute shader.
 
+Sync structures:
+- Render fence of each frame is to guarantee cmd buffer being finished before next CPU-side command recording.
+- Render semaphore is to sync with image presentation, so that image will be presented only after commands finish.
+- Swapchain semaphore will be signaled by swapchain aquisition and be waited by queue, so the queue can write to a prepared swapchain image.
+
 # Overall structure
 
 Vulkan 是一套在 GPU 上利用 shader 处理数据的 API。
